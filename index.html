@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Scommesse">
+<title>Registro scommesse</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone/app-180.png">
+<link rel="icon" type="image/png" href="icone/app-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="schermo" class="schermo">
+
+  <!-- Giocate -->
+  <section class="pagina" id="tab-giocate" data-tab="giocate">
+    <header class="nav"><div class="nav-lato"></div><div class="nav-titolo">Giocate</div><div class="nav-lato"></div></header>
+    <h1 class="titolo-grande">Giocate</h1>
+    <div class="contenuto">
+      <div class="controlli" id="controlli-giocate"></div>
+      <div id="corpo-giocate"></div>
+    </div>
+  </section>
+
+  <!-- Statistiche -->
+  <section class="pagina" id="tab-statistiche" data-tab="statistiche" hidden>
+    <header class="nav"><div class="nav-lato"></div><div class="nav-titolo">Statistiche</div><div class="nav-lato"></div></header>
+    <h1 class="titolo-grande">Statistiche</h1>
+    <div class="contenuto">
+      <div class="controlli" id="controlli-statistiche"></div>
+      <div id="corpo-statistiche"></div>
+    </div>
+  </section>
+
+  <!-- Impostazioni -->
+  <section class="pagina" id="tab-impostazioni" data-tab="impostazioni" hidden>
+    <header class="nav"><div class="nav-lato"></div><div class="nav-titolo">Impostazioni</div><div class="nav-lato"></div></header>
+    <h1 class="titolo-grande">Impostazioni</h1>
+    <div class="contenuto" id="corpo-impostazioni"></div>
+  </section>
+
+  <!-- Pagine di dettaglio che entrano da destra -->
+  <div id="pila"></div>
+
+  <!-- Barra in basso -->
+  <nav class="barra-tab" aria-label="Sezioni">
+    <div class="capsula" role="tablist">
+      <button type="button" data-tab="giocate" class="attivo" role="tab"><span class="tab-icona" data-icona="schedina"></span><span>Giocate</span></button>
+      <button type="button" data-tab="statistiche" role="tab"><span class="tab-icona" data-icona="grafico"></span><span>Statistiche</span></button>
+      <button type="button" data-tab="impostazioni" role="tab"><span class="tab-icona" data-icona="ingranaggio"></span><span>Impostazioni</span><i class="badge" hidden></i></button>
+    </div>
+    <button type="button" class="bottone-nuova" id="nuova" aria-label="Nuova giocata"><span data-icona="piu"></span></button>
+  </nav>
+</div>
+
+<div id="velo" class="velo"></div>
+<section id="foglio" class="foglio" role="dialog" aria-modal="true" aria-labelledby="foglio-titolo" hidden></section>
+<div id="scelte" class="scelte" hidden></div>
+<div id="notifica" class="notifica" role="status" aria-live="polite"></div>
+
+<script src="archivio.js"></script>
+<script src="calcoli.js"></script>
+<script src="icone.js"></script>
+<script src="grafici.js"></script>
+<script src="app.js"></script>
+<script src="statistiche.js"></script>
+</body>
+</html>
