@@ -152,6 +152,10 @@ function titolo365(r) {
     return { soglia: { nome: m[1].trim(), n: Number(m[2]), stat: m[3] }, quota: m[4] ? quotaDa(m[4]) : null };
   }
   if ((m = r.match(/^(.+?)\s+(\d{1,3}[.,]\d{2})$/))) return { scelta: m[1], quota: quotaDa(m[2]) };
+  // L'iPhone spesso legge la quota su un'altra riga: si riconoscono le scelte dalla forma
+  // "Cam Spencer - Sì" · "Real Madrid -1.0" · "Più di 2.5"
+  if (/^[A-ZÀ-Ý].+\s+-\s+(s[iì]|no)$/i.test(r) || /^[A-ZÀ-Ý].*\S\s[+-]\d+(?:[.,]\d)?$/.test(r)
+    || /^(over|under|più di|piu di|meno di)\s+\d+(?:[.,]\d)?$/i.test(r)) return { scelta: r, quota: null };
   return null;
 }
 
@@ -239,13 +243,15 @@ function leggiBet365(tutte) {
   const date = [];      // date e ore delle partite, nell'ordine in cui arrivano
   const ore = [];
   let cur = null;
+  const prima = [];     // righe prima della prima selezione riconosciuta
   (fine >= 0 ? righe.slice(0, fine) : righe).forEach(r => {
     let x;
     // (la data in cima all'immagine è quella di quando l'hai condivisa: arriva prima della prima selezione)
-    if (blocchi.length && (x = r.match(RX_DATA_365))) {
+    const iniziata = blocchi.length || prima.length;
+    if (iniziata && (x = r.match(RX_DATA_365))) {
       date.push(`${due(x[1])}/${due(MESI_BREVI.indexOf(x[2]) + 1)}`);
       if (x[3]) ore.push(`${due(x[3])}:${x[4]}`);
-    } else if (blocchi.length && (x = r.match(/^(\d{1,2}):(\d{2})$/))) ore.push(`${due(x[1])}:${x[2]}`);
+    } else if (iniziata && (x = r.match(/^(\d{1,2}):(\d{2})$/))) ore.push(`${due(x[1])}:${x[2]}`);
     if (RX_QUOTA.test(r)) { sciolte.push(quotaDa(r)); return; }
     if (SCARTA_365.some(rx => rx.test(r))) return;
     const t = titolo365(r);
@@ -255,12 +261,18 @@ function leggiBet365(tutte) {
       cur = { titolo: t, righe: [] };
       blocchi.push(cur);
     } else if (cur) cur.righe.push(r);
+    else prima.push(r);
   });
+  // Singola con una scelta qualsiasi ("Inter") e la quota su un'altra riga: la prima riga rimasta è la scelta
+  if (!blocchi.length && prima.length) blocchi.push({ titolo: { scelta: prima[0], quota: null }, righe: prima.slice(1) });
+  // La colonna di destra a volte arriva in fondo, anche dopo "Punt:"
+  if (fine >= 0) righe.slice(fine).forEach(r => { if (RX_QUOTA.test(r)) sciolte.push(quotaDa(r)); });
   blocchi.filter(b => b.titolo.quota == null).forEach(b => { if (sciolte.length) b.titolo.quota = sciolte.shift(); });
 
   const selezioni = blocchi.map((b, k) => ({ ...selezione365(b), data: date[k] ? dataDa(date[k]) : null, orario: ore[k] || '' }));
   // Quota vera = vincita ÷ puntata: comprende il bonus multipla e gli arrotondamenti (non con il cashout)
   const quota = esito !== 'cashout' && importo && vincita > importo ? Math.round((vincita / importo) * 100) / 100 : null;
+  if (selezioni.length === 1 && selezioni[0].quota == null) selezioni[0].quota = quota;
   return { bookmaker: 'bet365', schedine: Math.max(1, testate.length), importo, esito, incasso, quota, selezioni };
 }
 
