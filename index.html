@@ -6,12 +6,14 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
+<script src="archivio.js"></script>
 <script>
   /* Applica subito il tema scelto nelle Impostazioni, prima che iOS legga il colore
-     della barra in alto (lo legge all'apertura e poi non lo cambia più). */
+     della barra in alto (lo legge all'apertura e poi non lo cambia più).
+     I dati si leggono solo da archivio.js, caricato qui sopra apposta. */
   (function () {
     try {
-      var t = JSON.parse(localStorage.getItem('registro-scommesse')).impostazioni.tema;
+      var t = Archivio.carica().impostazioni.tema;
       if (t !== 'chiaro' && t !== 'scuro') return;
       var scuro = t === 'scuro';
       document.documentElement.setAttribute('data-theme', scuro ? 'dark' : 'light');
@@ -83,7 +85,6 @@
 <div id="scelte" class="scelte" hidden></div>
 <div id="notifica" class="notifica" role="status" aria-live="polite"></div>
 
-<script src="archivio.js"></script>
 <script src="calcoli.js"></script>
 <script src="icone.js"></script>
 <script src="grafici.js"></script>

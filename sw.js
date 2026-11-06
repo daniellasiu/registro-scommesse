@@ -8,10 +8,10 @@
 
    Le giocate NON passano da qui: stanno nella memoria del browser (archivio.js). */
 
-const VERSIONE = '6 nov 2026 · 8';
+const VERSIONE = '6 nov 2026 · 9';
 const CACHE = `registro-${VERSIONE}`;
 const FILE = [
-  './', 'index.html', 'style.css', 'manifest.webmanifest',
+  'index.html', 'style.css', 'manifest.webmanifest',
   'archivio.js', 'calcoli.js', 'icone.js', 'grafici.js', 'app.js', 'statistiche.js',
   'icone/app-180.png', 'icone/app-192.png', 'icone/app-512.png',
 ];

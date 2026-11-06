@@ -30,7 +30,9 @@ m = re.search(r"const VERSIONE = '[^']*· (\d+)';", sw)
 numero = int(m.group(1)) + 1 if m else 1
 oggi = datetime.date.today()
 nuova = f"{oggi.day} {mesi[oggi.month - 1]} {oggi.year} · {numero}"
-sw = re.sub(r"const VERSIONE = '[^']*';", f"const VERSIONE = '{nuova}';", sw, count=1)
+sw, sostituite = re.subn(r"const VERSIONE = '[^']*';", f"const VERSIONE = '{nuova}';", sw, count=1)
+if not sostituite:
+    sys.exit("Fermo: in sw.js non trovo la riga const VERSIONE = '...';")
 pathlib.Path('sw.js').write_text(sw)
 print(f"Versione {nuova}")
 EOF

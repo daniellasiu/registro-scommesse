@@ -65,8 +65,11 @@ function ricaricaQui() {
 }
 
 // L'iPhone passa da chiaro a scuro (es. la sera) con il tema su Automatico
+// (con la scheda o una domanda aperte si ricarica quando torni all'app)
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (appSchermataHome && stato.impostazioni.tema === 'auto' && libero()) ricaricaQui();
+  if (!appSchermataHome || stato.impostazioni.tema !== 'auto') return;
+  if (libero()) ricaricaQui();
+  else ricaricaInAttesa = true;
 });
 
 /* =========================================================
@@ -272,7 +275,7 @@ function rigaGiocata(g) {
     const n = netto(g);
     destra = `<div class="riga-dx colonna"><span class="importo testo-${segno(n)}">${euroSegno(n)}</span><span class="importo-nota">${ESITI[g.esito]}</span></div>`;
   }
-  return `<div class="riga toccabile" data-id="${g.id}" role="button" tabindex="0">
+  return `<div class="riga toccabile" data-id="${esc(g.id)}" role="button" tabindex="0">
     ${avatar}
     <div class="riga-testi">
       <div class="riga-titolo">${esc(multi ? `Multipla · ${g.selezioni.length}` : nomeSelezione(s))}</div>
@@ -328,8 +331,9 @@ function cartaRiepilogo(area) {
   </section>`;
 }
 
-/* Quali giocate sono "da completare" in questo momento: serve per ridisegnare solo se cambia */
-const firmaDaCompletare = () => stato.giocate.filter(daCompletare).map(g => g.id).join(',');
+/* Quali giocate sono "da completare" in questo momento, e che giorno è (dopo mezzanotte
+   "Oggi" diventa "Ieri"): serve per ridisegnare solo se cambia */
+const firmaDaCompletare = () => `${oggiISO()}|${stato.giocate.filter(daCompletare).map(g => g.id).join(',')}`;
 let firmaVista = '';
 
 function renderGiocate() {
@@ -1107,13 +1111,35 @@ $('#corpo-impostazioni').addEventListener('change', async e => {
 
 /* Una giocata importata è valida solo se ha tutto quello che serve per disegnarla e contarla */
 const numeroPositivo = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+// Come Object.hasOwn, ma funziona anche su iOS più vecchi di 15.4
+const haProprio = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+// Testo facoltativo: o manca del tutto o è un testo (null o un numero rompono la scheda di modifica)
+const testoOpz = v => v === undefined || typeof v === 'string';
 function giocataValida(g) {
-  return !!g && typeof g === 'object' && typeof g.id === 'string'
+  return !!g && typeof g === 'object' && typeof g.id === 'string' && g.id !== ''
     && (g.area === 'nba' || g.area === 'calcio')
     && typeof g.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(g.data)
-    && numeroPositivo(g.importo) && numeroPositivo(g.quota) && g.esito in ESITI
+    && numeroPositivo(g.importo) && numeroPositivo(g.quota) && haProprio(ESITI, g.esito)
+    && testoOpz(g.note) && testoOpz(g.orario)
     && Array.isArray(g.selezioni) && g.selezioni.length > 0
-    && g.selezioni.every(x => x && (x.sport === 'nba' || x.sport === 'calcio') && numeroPositivo(x.quota));
+    && g.selezioni.every(x => x && (x.sport === 'nba' || x.sport === 'calcio') && numeroPositivo(x.quota)
+      && testoOpz(x.partita) && testoOpz(x.dettaglio)
+      && (x.sport === 'nba' ? typeof x.giocatore === 'string' : testoOpz(x.giocatore)));
+}
+
+/* Dal backup si prendono solo le impostazioni del tipo giusto; le altre restano quelle predefinite */
+function impostazioniDaBackup(imp) {
+  const tipoGiusto = (v, pred) => (Array.isArray(pred) ? Array.isArray(v) && (!pred.length || (v.length > 0 && v.every(numeroPositivo)))
+    : typeof pred === 'number' ? numeroPositivo(v)
+      : pred === null ? v === null || typeof v === 'string'
+        : typeof v === typeof pred && v !== null);
+  const prendi = (fonte, pred) => Object.fromEntries(Object.entries(pred).map(([k, p]) =>
+    [k, haProprio(fonte, k) && tipoGiusto(fonte[k], p) ? fonte[k] : JSON.parse(JSON.stringify(p))]));
+  const o = imp && typeof imp === 'object' ? imp : {};
+  const fuori = prendi(o, PREDEFINITE);
+  fuori.ultimi = prendi(o.ultimi && typeof o.ultimi === 'object' ? o.ultimi : {}, PREDEFINITE.ultimi);
+  if (!['auto', 'chiaro', 'scuro'].includes(fuori.tema)) fuori.tema = PREDEFINITE.tema;
+  return fuori;
 }
 
 async function leggiBackup(input) {
@@ -1140,16 +1166,18 @@ async function leggiBackup(input) {
     conferma: 'Sostituisci tutto',
   });
   if (!ok) return;
-  const imp = dati.impostazioni && typeof dati.impostazioni === 'object' ? dati.impostazioni : {};
+  const temaPrima = stato.impostazioni.tema;
   stato = {
     versione: 1,
     giocate: valide,
-    impostazioni: { ...PREDEFINITE, ...imp, ultimi: { ...PREDEFINITE.ultimi, ...(imp.ultimi || {}) } },
+    impostazioni: impostazioniDaBackup(dati.impostazioni),
   };
   salva();
   applicaTema();
   aggiornaTutto();
   notifica('Backup importato');
+  // Il backup ha un altro tema: sull'iPhone la barra in alto si ricolora solo ricaricando
+  if (appSchermataHome && stato.impostazioni.tema !== temaPrima) setTimeout(ricaricaQui, 1200);
 }
 
 /* iPhone, iPad (che si presenta come Mac ma ha il touch) o Android */
@@ -1198,7 +1226,8 @@ async function esportaBackup() {
    Avvio
    ========================================================= */
 
-/* Versione nuova arrivata mentre la scheda o una domanda erano aperte: si ricarica dopo */
+/* Versione nuova (o cambio chiaro/scuro) arrivati mentre la scheda o una domanda erano aperte:
+   si ricarica dopo */
 let ricaricaInAttesa = false;
 const libero = () => !bozza && $('#scelte').hidden;
 
@@ -1231,7 +1260,7 @@ function avvio() {
     if (document.hidden) return;
     controllaAggiornamenti();
     if (bozza) return;
-    if (ricaricaInAttesa && libero()) location.reload();
+    if (ricaricaInAttesa && libero()) ricaricaQui();
     else aggiornaTutto();
   });
   setInterval(() => {
