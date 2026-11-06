@@ -94,23 +94,12 @@ function interruttore(campo, acceso, etichetta) {
   return `<span class="interruttore"><input type="checkbox" switch role="switch" data-campo="${campo}" data-stato="${acceso ? 1 : 0}" ${acceso ? 'checked' : ''} aria-label="${esc(etichetta)}"><span class="traccia"></span></span>`;
 }
 
-/* Vibrazione leggera (feedback aptico) sull'iPhone, da iOS 18: Safari la produce quando si
-   tocca un interruttore nativo, quindi ne teniamo uno invisibile e lo "tocchiamo" noi.
-   Funziona solo dentro un tocco vero (per esempio su ✓). Altrove non fa niente. */
-const vibrazione = (() => {
-  if (!/iPhone|iPad/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))) return () => {};
-  let etichetta = null;
-  return () => {
-    if (!etichetta) {
-      etichetta = document.createElement('label');
-      etichetta.setAttribute('aria-hidden', 'true');
-      etichetta.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;left:0;top:0';
-      etichetta.innerHTML = '<input type="checkbox" switch tabindex="-1">';
-      document.body.appendChild(etichetta);
-    }
-    etichetta.click();
-  };
-})();
+/* Vibrazione leggera (feedback aptico) sull'iPhone, da iOS 18: iOS vibra solo quando il dito
+   tocca davvero un interruttore nativo (com'è "Gambolata"), non se lo si "tocca" da codice.
+   Quindi nei pulsanti importanti c'è un interruttore invisibile grande quanto il pulsante:
+   il dito tocca quello, l'iPhone vibra e il tocco arriva al pulsante come sempre.
+   Va dentro un pulsante con position: relative. Altrove (Mac, Android) non fa niente. */
+const APTICO = '<input type="checkbox" switch class="aptico" tabindex="-1" aria-hidden="true">';
 
 function vuoto(nomeIcona, titolo, testo) {
   return `<div class="vuoto">${icona(nomeIcona)}<h3>${esc(titolo)}</h3><p>${esc(testo)}</p></div>`;
@@ -149,7 +138,7 @@ function chiedi({ titolo = '', messaggio = '', conferma, annulla = 'Annulla', di
     s.innerHTML = `<div class="scelte-pannello">
       <div class="scelte-gruppo">
         ${titolo || messaggio ? `<div class="scelte-messaggio">${titolo ? `<b>${esc(titolo)}</b>` : ''}${esc(messaggio)}</div>` : ''}
-        <button type="button" class="${distruttiva ? 'distruttiva' : ''}" data-r="1">${esc(conferma)}</button>
+        <button type="button" class="${distruttiva ? 'distruttiva' : ''}" data-r="1">${esc(conferma)}${APTICO}</button>
       </div>
       <button type="button" class="annulla" data-r="0">${esc(annulla)}</button>
     </div>`;
@@ -287,8 +276,8 @@ function rigaGiocata(g) {
     destra = multi
       ? `<div class="riga-dx"><button type="button" class="capsula-tinta" data-az="segna">Segna</button></div>`
       : `<div class="riga-dx">
-          <button type="button" class="tondo pos" data-az="vinta" aria-label="Segna come vinta">${icona('spunta')}</button>
-          <button type="button" class="tondo neg" data-az="persa" aria-label="Segna come persa">${icona('croce')}</button>
+          <button type="button" class="tondo pos" data-az="vinta" aria-label="Segna come vinta">${icona('spunta')}${APTICO}</button>
+          <button type="button" class="tondo neg" data-az="persa" aria-label="Segna come persa">${icona('croce')}${APTICO}</button>
         </div>`;
   } else {
     const n = netto(g);
@@ -425,7 +414,6 @@ $('#corpo-giocate').addEventListener('keydown', e => {
 
 /* Vinta/persa con un tocco, con la possibilità di annullare */
 function esitoRapido(g, esito) {
-  vibrazione();
   const prima = JSON.stringify(g);
   impostaEsitoGiocata(g, esito);
   salva();
@@ -770,7 +758,7 @@ function apriForm(g) {
       <div class="foglio-nav">
         <button type="button" class="nav-testo" data-az="annulla">Annulla</button>
         <h2 id="foglio-titolo">${g ? 'Giocata' : 'Nuova giocata'}</h2>
-        <button type="button" class="nav-testo forte" data-az="salva">${g ? 'Fine' : 'Aggiungi'}</button>
+        <button type="button" class="nav-testo forte" data-az="salva">${g ? 'Fine' : 'Aggiungi'}${APTICO}</button>
       </div>
     </div>
     <div class="foglio-corpo"></div>`;
@@ -944,8 +932,7 @@ $('#foglio').addEventListener('click', async e => {
     case 'elimina': {
       const ok = await chiedi({ messaggio: 'La giocata verrà eliminata e non sarà più nelle statistiche.', conferma: 'Elimina giocata' });
       if (!ok || !bozza) return;
-      vibrazione();
-      stato.giocate = stato.giocate.filter(g => g.id !== b.id);
+          stato.giocate = stato.giocate.filter(g => g.id !== b.id);
       salva();
       chiudiForm();
       aggiornaTutto();
@@ -1007,7 +994,6 @@ function salvaBozza() {
   // Mostra la sezione in cui è finita la giocata
   if (nuova) { ui.area = areaDi(g); if (ui.tab === 'giocate') disegnaControlliGiocate(); }
   aggiornaTutto();
-  vibrazione();
   notifica(nuova ? 'Giocata aggiunta' : 'Modifiche salvate');
 }
 

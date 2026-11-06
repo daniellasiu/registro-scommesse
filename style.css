@@ -408,6 +408,11 @@ button:focus-visible, select:focus-visible + *, a:focus-visible { outline: 2px s
 .tondo.neg { background: color-mix(in srgb, var(--dato-neg) 14%, transparent); color: var(--testo-neg); }
 .tondo:active { transform: scale(.92); }
 
+/* Interruttore iOS invisibile sopra i pulsanti importanti: il dito tocca lui e l'iPhone vibra
+   (vedi APTICO in app.js). Il tocco poi arriva al pulsante come sempre. */
+.tondo, .nav-testo, .scelte button { position: relative; }
+.aptico { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+
 .capsula-tinta {
   height: 32px;
   padding: 0 14px;
