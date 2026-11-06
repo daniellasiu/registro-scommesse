@@ -90,8 +90,27 @@ function chip(nome, valore, etichetta, attivo, sel = null) {
 }
 
 function interruttore(campo, acceso, etichetta) {
-  return `<span class="interruttore"><input type="checkbox" role="switch" data-campo="${campo}" data-stato="${acceso ? 1 : 0}" ${acceso ? 'checked' : ''} aria-label="${esc(etichetta)}"><span class="traccia"></span></span>`;
+  // "switch": su iPhone è un interruttore nativo, che vibra leggermente quando lo tocchi
+  return `<span class="interruttore"><input type="checkbox" switch role="switch" data-campo="${campo}" data-stato="${acceso ? 1 : 0}" ${acceso ? 'checked' : ''} aria-label="${esc(etichetta)}"><span class="traccia"></span></span>`;
 }
+
+/* Vibrazione leggera (feedback aptico) sull'iPhone, da iOS 18: Safari la produce quando si
+   tocca un interruttore nativo, quindi ne teniamo uno invisibile e lo "tocchiamo" noi.
+   Funziona solo dentro un tocco vero (per esempio su ✓). Altrove non fa niente. */
+const vibrazione = (() => {
+  if (!/iPhone|iPad/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))) return () => {};
+  let etichetta = null;
+  return () => {
+    if (!etichetta) {
+      etichetta = document.createElement('label');
+      etichetta.setAttribute('aria-hidden', 'true');
+      etichetta.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;left:0;top:0';
+      etichetta.innerHTML = '<input type="checkbox" switch tabindex="-1">';
+      document.body.appendChild(etichetta);
+    }
+    etichetta.click();
+  };
+})();
 
 function vuoto(nomeIcona, titolo, testo) {
   return `<div class="vuoto">${icona(nomeIcona)}<h3>${esc(titolo)}</h3><p>${esc(testo)}</p></div>`;
@@ -406,6 +425,7 @@ $('#corpo-giocate').addEventListener('keydown', e => {
 
 /* Vinta/persa con un tocco, con la possibilità di annullare */
 function esitoRapido(g, esito) {
+  vibrazione();
   const prima = JSON.stringify(g);
   impostaEsitoGiocata(g, esito);
   salva();
@@ -924,6 +944,7 @@ $('#foglio').addEventListener('click', async e => {
     case 'elimina': {
       const ok = await chiedi({ messaggio: 'La giocata verrà eliminata e non sarà più nelle statistiche.', conferma: 'Elimina giocata' });
       if (!ok || !bozza) return;
+      vibrazione();
       stato.giocate = stato.giocate.filter(g => g.id !== b.id);
       salva();
       chiudiForm();
@@ -986,6 +1007,7 @@ function salvaBozza() {
   // Mostra la sezione in cui è finita la giocata
   if (nuova) { ui.area = areaDi(g); if (ui.tab === 'giocate') disegnaControlliGiocate(); }
   aggiornaTutto();
+  vibrazione();
   notifica(nuova ? 'Giocata aggiunta' : 'Modifiche salvate');
 }
 
