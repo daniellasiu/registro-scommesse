@@ -140,6 +140,8 @@
 /* ---------- Base ---------- */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* Niente zoom con il doppio tocco (resta il pizzico con due dita) e niente ritardo sui tocchi */
+*, *::before, *::after { touch-action: manipulation; }
 html, body { height: 100%; }
 html { -webkit-text-size-adjust: 100%; }
 body {
