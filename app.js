@@ -1102,27 +1102,46 @@ async function leggiBackup(input) {
   notifica('Backup importato');
 }
 
+/* iPhone, iPad (che si presenta come Mac ma ha il touch) o Android */
+const suTelefono = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+
+function scaricaFile(file) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/* Sul telefono si usa "Condividi" (→ Salva su File / iCloud Drive).
+   Sul computer, o se "Condividi" non va, il file si scarica e basta. */
 async function esportaBackup() {
   const testo = JSON.stringify({ ...stato, esportato: new Date().toISOString() }, null, 2);
-  const nome = `registro-scommesse-${oggiISO()}.json`;
-  const file = new File([testo], nome, { type: 'application/json' });
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  const file = new File([testo], `registro-scommesse-${oggiISO()}.json`, { type: 'application/json' });
+  let condiviso = false;
+  if (suTelefono() && navigator.canShare?.({ files: [file] })) {
+    try {
       await navigator.share({ files: [file], title: 'Backup registro scommesse' });
-    } else {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(file);
-      a.download = nome;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      condiviso = true;
+    } catch (err) {
+      if (err.name === 'AbortError') return;   // hai chiuso tu la finestra: nessun errore
     }
-    stato.impostazioni.ultimoBackup = new Date().toISOString();
-    salva();
-    aggiornaTutto();
-    notifica('Backup esportato');
-  } catch (err) {
-    if (err.name !== 'AbortError') notifica('Esportazione non riuscita', { icona: 'avviso', tono: 'testo-avviso' });
   }
+  if (!condiviso) {
+    try {
+      scaricaFile(file);
+    } catch {
+      notifica('Esportazione non riuscita', { icona: 'avviso', tono: 'testo-avviso' });
+      return;
+    }
+  }
+  stato.impostazioni.ultimoBackup = new Date().toISOString();
+  salva();
+  aggiornaTutto();
+  notifica(condiviso ? 'Backup esportato' : 'Backup salvato in Download');
 }
 
 /* =========================================================
