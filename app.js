@@ -292,8 +292,8 @@ function cartaRiepilogo(area) {
       <div class="carta-testa"><span class="eroe-etichetta">Cassa</span><span class="carta-contesto">Stagione ${st}</span></div>
       <div class="cifra-eroe">${euro(imp.base + m.guadagno)}</div>
       <div class="eroe-delta">${m.chiuse.length
-        ? `<b class="testo-${segno(m.guadagno)}">${euroSegno(m.guadagno)} (${percSegno(perc)})</b> sulla base di ${euroAgile(imp.base)}`
-        : `Cifra base ${euroAgile(imp.base)} · ancora nessuna giocata conclusa`}</div>
+        ? `<b class="testo-${segno(m.guadagno)}">${euroSegno(m.guadagno)} (${percSegno(perc)})</b> sul bankroll di ${euroAgile(imp.base)}`
+        : `Bankroll ${euroAgile(imp.base)} · ancora nessuna giocata conclusa`}</div>
       ${barraObiettivo}
     </section>`;
   }
@@ -598,7 +598,7 @@ function sezionePuntata() {
       </div></div>`;
   }
   const note = [
-    usaStake(b) ? `Lo stake si calcola sulla cifra base di ${euroAgile(b.base)}.` : '',
+    usaStake(b) ? `Lo stake si calcola sul bankroll di ${euroAgile(b.base)}.` : '',
     multi ? 'Lascia vuota la quota totale per moltiplicare le quote; scrivila se il bookmaker la arrotonda o la maggiora.' : '',
   ].filter(Boolean).join(' ');
   return `<section class="f-gruppo" data-sezione="puntata">
@@ -996,15 +996,15 @@ function renderImpostazioni() {
     <section class="gruppo">
       <h2 class="intestazione">NBA</h2>
       <div class="lista">
-        ${rigaCampo('base', 'Cifra base', decimale(imp.base), '€')}
+        ${rigaCampo('base', 'Bankroll', decimale(imp.base), '€')}
         ${rigaCampo('obiettivoNba', 'Obiettivo stagione', decimale(imp.obiettivoNba), '€')}
         ${rigaCampo('stakeRapidi', 'Stake rapidi', lista(imp.stakeRapidi), '%', 'text')}
       </div>
-      <p class="piede">Lo stake si calcola sulla cifra base: 15% di 200&nbsp;€ = 30&nbsp;€. Se la cambi, vale dalle giocate successive. A ogni nuova stagione (1° ottobre) la cassa riparte da qui. Gli stake rapidi si separano con uno spazio.</p>
+      <p class="piede">Lo stake si calcola sul bankroll: 15% di 200&nbsp;€ = 30&nbsp;€. Se lo cambi, vale dalle giocate successive. A ogni nuova stagione (1° ottobre) la cassa riparte da qui. Gli stake rapidi si separano con uno spazio.</p>
     </section>
 
     ${storico.length ? `<section class="gruppo">
-      <h2 class="intestazione">Cambi della cifra base</h2>
+      <h2 class="intestazione">Cambi del bankroll</h2>
       <div class="lista">${storico.map(s => `<div class="riga"><span class="riga-testi">${new Date(s.data).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}</span><span class="riga-valore">${euroAgile(s.da)} → ${euroAgile(s.a)}</span></div>`).join('')}</div>
     </section>` : ''}
 
@@ -1064,7 +1064,7 @@ $('#corpo-impostazioni').addEventListener('change', async e => {
     if (!(n > 0)) { notifica('Cifra non valida', { icona: 'avviso', tono: 'testo-avviso' }); renderImpostazioni(); return; }
     if (k === 'base' && n !== imp.base) {
       imp.storicoBase.push({ data: new Date().toISOString(), da: imp.base, a: n });
-      notifica(`Cifra base: ${euroAgile(n)}`);
+      notifica(`Bankroll: ${euroAgile(n)}`);
     }
     imp[k] = n;
   }
