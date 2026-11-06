@@ -1,11 +1,15 @@
 'use strict';
 
-/* Tiene una copia dei file dell'app sul telefono, così si apre anche senza internet.
-   Con la rete prende sempre la versione più recente (e aggiorna la copia);
-   se la rete manca o è troppo lenta, usa la copia salvata.
+/* Tiene una copia dei file dell'app sul telefono: si apre subito, anche senza internet.
+
+   Come arrivano gli aggiornamenti: a ogni pubblicazione cambia VERSIONE (lo fa pubblica.sh).
+   Il telefono, aprendo l'app, vede che questo file è cambiato, scarica in sottofondo tutti
+   i file nuovi e poi l'app si ricarica da sola (app.js, mai con la scheda aperta).
+
    Le giocate NON passano da qui: stanno nella memoria del browser (archivio.js). */
 
-const CACHE = 'registro-v2';
+const VERSIONE = '6 nov 2026 · 7';
+const CACHE = `registro-${VERSIONE}`;
 const FILE = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'archivio.js', 'calcoli.js', 'icone.js', 'grafici.js', 'app.js', 'statistiche.js',
@@ -13,40 +17,34 @@ const FILE = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILE)).then(() => self.skipWaiting()));
+  // cache: 'reload' = scarica dal sito, non dalla copia del browser (che può essere vecchia di 10 minuti)
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(FILE.map(f => new Request(f, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(nomi => Promise.all(nomi.filter(n => n !== CACHE).map(n => caches.delete(n))))
+      .then(nomi => Promise.all(nomi.filter(n => n.startsWith('registro-') && n !== CACHE).map(n => caches.delete(n))))
       .then(() => self.clients.claim()),
   );
 });
 
-function entro(promessa, ms) {
-  return new Promise((ok, ko) => {
-    const t = setTimeout(() => ko(new Error('rete lenta')), ms);
-    promessa.then(v => { clearTimeout(t); ok(v); }, err => { clearTimeout(t); ko(err); });
-  });
-}
-
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  // no-cache: chiede sempre al sito se il file è cambiato (risposta rapida se è uguale),
-  // così una correzione pubblicata arriva subito invece che dopo 10 minuti
-  const dallaRete = fetch(e.request, { cache: 'no-cache' }).then(risposta => {
-    if (risposta.ok) {
-      const copia = risposta.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copia));
-    }
-    return risposta;
-  });
+  // L'apertura dell'app (indirizzo della cartella o index.html, anche con ?qualcosa) usa la pagina salvata
+  const apertura = e.request.mode === 'navigate' && /\/(index\.html)?$/.test(url.pathname);
+  const cosa = apertura ? 'index.html' : e.request;
   e.respondWith(
-    entro(dallaRete, 3000).catch(() =>
-      caches.match(e.request, { ignoreSearch: true })
-        .then(r => r || caches.match('index.html'))
-        .then(r => r || dallaRete)),
+    caches.open(CACHE).then(c => c.match(cosa, { ignoreSearch: true }).then(salvata => {
+      if (salvata) return salvata;
+      // Un file che non è nella copia (non dovrebbe succedere): si prende dal sito e si conserva
+      return fetch(e.request).then(risposta => {
+        if (risposta.ok) c.put(e.request, risposta.clone());
+        return risposta;
+      });
+    })),
   );
 });

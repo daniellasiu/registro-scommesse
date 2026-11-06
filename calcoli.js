@@ -43,12 +43,15 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function euro(n, decimali = 2) {
-  return n.toLocaleString('it-IT', {
-    style: 'currency', currency: 'EUR', useGrouping: 'always',
-    minimumFractionDigits: decimali, maximumFractionDigits: decimali,
-  });
-}
+/* I formattatori si creano una volta sola e si riusano: crearli è la parte lenta */
+const FORMATI_EURO = [0, 2].map(d => new Intl.NumberFormat('it-IT', {
+  style: 'currency', currency: 'EUR', useGrouping: 'always', minimumFractionDigits: d, maximumFractionDigits: d,
+}));
+const FORMATO_DATA_BREVE = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' });
+const FORMATO_DATA_LUNGA = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+const FORMATO_INIZIALE_GIORNO = new Intl.DateTimeFormat('it-IT', { weekday: 'narrow' });
+
+const euro = (n, decimali = 2) => FORMATI_EURO[decimali === 0 ? 0 : 1].format(n);
 /* 30 € invece di 30,00 €, ma 22,50 € resta così */
 const euroAgile = n => euro(n, Number.isInteger(arrot(n)) ? 0 : 2);
 const segno = n => (n > 0.004 ? 'pos' : n < -0.004 ? 'neg' : 'zero');
@@ -76,12 +79,8 @@ const domaniISO = () => spostaGiorni(isoData(), 1);
 const ieriISO = () => spostaGiorni(isoData(), -1);
 const maiuscola = s => s.charAt(0).toUpperCase() + s.slice(1);
 
-function dataBreve(iso) {
-  return new Date(`${iso}T12:00`).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
-}
-function dataLunga(iso) {
-  return maiuscola(new Date(`${iso}T12:00`).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' }));
-}
+const dataBreve = iso => FORMATO_DATA_BREVE.format(new Date(`${iso}T12:00`));
+const dataLunga = iso => maiuscola(FORMATO_DATA_LUNGA.format(new Date(`${iso}T12:00`)));
 function giornoRelativo(iso) {
   if (iso === oggiISO()) return 'Oggi';
   if (iso === ieriISO()) return 'Ieri';
@@ -144,10 +143,6 @@ function impostaEsitoGiocata(g, esito) {
   g.esito = esito;
   if (g.selezioni.length === 1) g.selezioni[0].esito = ESITO_SEL_DA_GIOCATA[esito];
 }
-function impostaEsitoSelezione(g, i, esito) {
-  g.selezioni[i].esito = esito;
-  if (g.esito !== 'cashout') g.esito = esitoDaSelezioni(g);
-}
 
 /* Quando la partita è sicuramente finita */
 function fineStimata(g) {
@@ -175,13 +170,6 @@ const nomeSelezione = s => (s.sport === 'nba' ? s.giocatore : s.partita);
 
 function titoloGiocata(g) {
   return g.selezioni.length > 1 ? `Multipla · ${g.selezioni.length} selezioni` : nomeSelezione(g.selezioni[0]);
-}
-function dettaglioGiocata(g) {
-  if (g.selezioni.length > 1) return g.selezioni.map(nomeSelezione).join(', ');
-  const s = g.selezioni[0];
-  return s.sport === 'nba'
-    ? [prestazione(s), s.partita].filter(Boolean).join(' · ')
-    : [mercatoCalcio(s), COMPETIZIONI_LUNGHE[s.competizione]].filter(Boolean).join(' · ');
 }
 
 /* ---------- Statistiche ---------- */
@@ -304,7 +292,7 @@ function barrePeriodo(chiuse, periodo) {
     const barre = [];
     for (let i = giorni - 1; i >= 0; i--) {
       const iso = spostaGiorni(oggiISO(), -i);
-      const iniziale = new Date(`${iso}T12:00`).toLocaleDateString('it-IT', { weekday: 'narrow' });
+      const iniziale = FORMATO_INIZIALE_GIORNO.format(new Date(`${iso}T12:00`));
       barre.push({ chiave: iso, etichetta: giornoRelativo(iso), asse: giorni === 7 ? iniziale.toUpperCase() : dataBreve(iso), valore: 0, n: 0 });
     }
     const indice = new Map(barre.map(b => [b.chiave, b]));

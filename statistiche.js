@@ -41,11 +41,21 @@ function stagioneScelta() {
   return vistaStat.stagione && elenco.includes(vistaStat.stagione) ? vistaStat.stagione : elenco[0];
 }
 
-function nelPeriodo(g) {
+/* Le giocate dell'area e del periodo scelti. La stagione e le date si calcolano una volta sola,
+   non per ogni giocata. */
+function giocatePeriodo() {
   const p = vistaStat.periodo;
-  if (p === 'oggi') return g.data === oggiISO();
-  if (p === 'stagione') return stagioneDi(g) === stagioneScelta();
-  return g.data >= spostaGiorni(oggiISO(), -(Number(p) - 1));
+  const oggi = oggiISO();
+  let dentro;
+  if (p === 'oggi') dentro = g => g.data === oggi;
+  else if (p === 'stagione') {
+    const st = stagioneScelta();
+    dentro = g => stagioneDi(g) === st;
+  } else {
+    const da = spostaGiorni(oggi, -(Number(p) - 1));
+    dentro = g => g.data >= da;
+  }
+  return giocateArea().filter(dentro);
 }
 
 function contesto() {
@@ -83,7 +93,12 @@ function disegnaFiltriStat() {
 }
 
 function renderStatistiche() {
-  if (areaControlliStat !== ui.area) disegnaControlliStat();
+  if (areaControlliStat !== ui.area) {
+    // L'area è cambiata (anche dalla pagina Giocate): i filtri della vecchia area non valgono più
+    vistaStat.sotto = 'tutte';
+    vistaStat.stagione = null;
+    disegnaControlliStat();
+  }
   disegnaCorpoStat();
 }
 
@@ -243,7 +258,7 @@ function listaAnalisi(m) {
 
 function apriAnalisi(chiave) {
   const a = ANALISI[chiave];
-  const chiuse = metriche(giocateArea().filter(nelPeriodo)).chiuse;
+  const chiuse = metriche(giocatePeriodo()).chiuse;
   const righe = a.righe(chiuse);
   apriPagina({
     titolo: a.titolo,
@@ -311,7 +326,7 @@ function apriDatiBarre(barre) {
 let datiCorrenti = null;
 
 function disegnaCorpoStat() {
-  const gs = giocateArea().filter(nelPeriodo);
+  const gs = giocatePeriodo();
   const m = metriche(gs);
   const corpo = $('#corpo-statistiche');
   if (!m.chiuse.length) {

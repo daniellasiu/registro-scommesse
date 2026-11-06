@@ -4,9 +4,6 @@
    Stato
    ========================================================= */
 
-/* Da aumentare a ogni pubblicazione: compare in fondo alle Impostazioni */
-const VERSIONE = '6 nov 2026 · 5';
-
 let stato = caricaStato();
 const ui = { tab: 'giocate', area: stato.impostazioni.ultimi.area === 'calcio' ? 'calcio' : 'nba', limite: 40 };
 let bozza = null;          // giocata in corso di inserimento/modifica
@@ -308,7 +305,12 @@ function cartaRiepilogo(area) {
   </section>`;
 }
 
+/* Quali giocate sono "da completare" in questo momento: serve per ridisegnare solo se cambia */
+const firmaDaCompletare = () => stato.giocate.filter(daCompletare).map(g => g.id).join(',');
+let firmaVista = '';
+
 function renderGiocate() {
+  firmaVista = firmaDaCompletare();
   // Se la sezione è stata cambiata dalle Statistiche, riallinea il selettore
   if ($('#controlli-giocate .seg button.attivo')?.dataset.val !== ui.area) disegnaControlliGiocate();
   aggiornaPuntiArea($('#controlli-giocate'));
@@ -1031,7 +1033,8 @@ function renderImpostazioni() {
     </section>
 
     <p class="piede" style="margin-top:26px">Sull’iPhone apri sempre l’app dall’icona nella schermata Home: le giocate salvate lì sono separate da quelle di Safari.</p>
-    <p class="piede" style="text-align:center;margin-top:20px">Registro scommesse · versione ${VERSIONE}</p>`;
+    <p class="piede" style="text-align:center;margin-top:20px">Registro scommesse · versione <span id="versione-app">…</span></p>`;
+  mostraVersione();
 }
 
 const listaNumeri = testo => testo.split(/[\s;]+/).map(numero).filter(n => n && n > 0).sort((a, b) => a - b);
@@ -1076,6 +1079,17 @@ $('#corpo-impostazioni').addEventListener('change', async e => {
   renderImpostazioni();
 });
 
+/* Una giocata importata è valida solo se ha tutto quello che serve per disegnarla e contarla */
+const numeroPositivo = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
+function giocataValida(g) {
+  return !!g && typeof g === 'object' && typeof g.id === 'string'
+    && (g.area === 'nba' || g.area === 'calcio')
+    && typeof g.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(g.data)
+    && numeroPositivo(g.importo) && numeroPositivo(g.quota) && g.esito in ESITI
+    && Array.isArray(g.selezioni) && g.selezioni.length > 0
+    && g.selezioni.every(x => x && (x.sport === 'nba' || x.sport === 'calcio') && numeroPositivo(x.quota));
+}
+
 async function leggiBackup(input) {
   const file = input.files[0];
   input.value = '';
@@ -1088,16 +1102,22 @@ async function leggiBackup(input) {
     notifica('Il file non è un backup valido', { icona: 'avviso', tono: 'testo-avviso' });
     return;
   }
+  const valide = dati.giocate.filter(giocataValida);
+  const scartate = dati.giocate.length - valide.length;
+  if (!valide.length && dati.giocate.length) {
+    notifica('Nel file non ci sono giocate leggibili', { icona: 'avviso', tono: 'testo-avviso' });
+    return;
+  }
   const ok = await chiedi({
-    titolo: `Il backup contiene ${plurale(dati.giocate.length, 'giocata', 'giocate')}`,
-    messaggio: `Sostituisce tutte quelle attuali (${stato.giocate.length}).`,
+    titolo: `Il backup contiene ${plurale(valide.length, 'giocata', 'giocate')}`,
+    messaggio: `${scartate ? `${plurale(scartate, 'giocata incompleta verrà scartata', 'giocate incomplete verranno scartate')}. ` : ''}Sostituisce tutte quelle attuali (${stato.giocate.length}).`,
     conferma: 'Sostituisci tutto',
   });
   if (!ok) return;
-  const imp = dati.impostazioni || {};
+  const imp = dati.impostazioni && typeof dati.impostazioni === 'object' ? dati.impostazioni : {};
   stato = {
     versione: 1,
-    giocate: dati.giocate,
+    giocate: valide,
     impostazioni: { ...PREDEFINITE, ...imp, ultimi: { ...PREDEFINITE.ultimi, ...(imp.ultimi || {}) } },
   };
   salva();
@@ -1152,6 +1172,10 @@ async function esportaBackup() {
    Avvio
    ========================================================= */
 
+/* Versione nuova arrivata mentre la scheda o una domanda erano aperte: si ricarica dopo */
+let ricaricaInAttesa = false;
+const libero = () => !bozza && $('#scelte').hidden;
+
 function avvio() {
   $$('[data-icona]').forEach(el => { el.innerHTML = icona(el.dataset.icona); });
   applicaTema();
@@ -1162,37 +1186,90 @@ function avvio() {
   renderGiocate();
   aggiornaBadge();
 
-  // Aggiorna "da completare" quando riapri l'app e ogni minuto
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && !bozza) aggiornaTutto(); });
-  setInterval(() => { if (!bozza && ui.tab === 'giocate') renderGiocate(); }, 60000);
+  // Quando riapri l'app: controlla se c'è una versione nuova e aggiorna "da completare"
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    controllaAggiornamenti();
+    if (bozza) return;
+    if (ricaricaInAttesa && libero()) location.reload();
+    else aggiornaTutto();
+  });
+  setInterval(() => {
+    if (!bozza && ui.tab === 'giocate' && firmaDaCompletare() !== firmaVista) renderGiocate();
+  }, 60000);
 
-  // Copia dei file sul telefono per usare l'app anche senza internet (sw.js)
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    const avevaVersione = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-    // Quando arriva una versione nuova dell'app, ricarica (ma mai mentre stai scrivendo una giocata)
-    let ricaricata = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!avevaVersione || ricaricata) return;
-      ricaricata = true;
-      if (!bozza) location.reload();
-    });
+  collegaAggiornamenti();
+}
+
+/* Copia dei file sul telefono (sw.js): l'app si apre subito e anche senza internet.
+   Solo sul sito pubblicato (https). Sul Mac (localhost) niente copia, così le modifiche
+   si vedono subito ricaricando; si toglie anche quella lasciata da prove precedenti. */
+function collegaAggiornamenti() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol !== 'https:') {
+    navigator.serviceWorker.getRegistrations().then(r => r.forEach(x => x.unregister())).catch(() => {});
+    return;
   }
+  const avevaVersione = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Versione nuova pronta: ricarica, ma mai mentre stai scrivendo una giocata o rispondendo
+  // a una domanda; in quel caso si ricarica quando torni all'app.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!avevaVersione || ricaricaInAttesa) return;
+    ricaricaInAttesa = true;
+    if (libero()) location.reload();
+  });
+}
+
+function controllaAggiornamenti() {
+  if (location.protocol !== 'https:' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistration().then(r => r?.update()).catch(() => {});
+}
+
+/* La versione la decide sw.js (è nel nome della copia salvata): una sola fonte, mai disallineata */
+async function mostraVersione() {
+  const el = $('#versione-app');
+  if (!el) return;
+  let testo = 'di prova (sul Mac)';
+  try {
+    if (location.protocol === 'https:') {
+      const nome = (await caches.keys()).find(n => n.startsWith('registro-') && n !== 'registro-v1' && n !== 'registro-v2');
+      testo = nome ? nome.slice('registro-'.length) : 'in installazione';
+    }
+  } catch { /* senza copia salvata resta il testo di prova */ }
+  el.textContent = testo;
 }
 
 /* iOS: due tocchi ravvicinati fanno partire lo zoom. Al secondo tocco blocchiamo lo zoom
    e passiamo noi il tocco all'elemento, così il pulsante funziona come sempre.
    Nei campi di testo non si interviene: lì il doppio tocco serve a selezionare. */
-let ultimoTocco = 0;
+/* Conta solo i tocchi veri: un dito, fermo, breve. Uno scorrimento, un trascinamento o il
+   pizzico con due dita non sono tocchi e non devono mai diventare un clic. */
+let toccoInizio = null;     // { x, y, t } del dito appena appoggiato, null se non è un tocco semplice
+let ultimoTocco = null;     // { x, y, t } dell'ultimo tocco vero
+document.addEventListener('touchstart', e => {
+  const p = e.touches[0];
+  toccoInizio = e.touches.length === 1 ? { x: p.clientX, y: p.clientY, t: e.timeStamp } : null;
+  if (e.touches.length > 1) ultimoTocco = null;
+}, { passive: true });
 document.addEventListener('touchend', e => {
-  const ora = e.timeStamp;
-  const vicino = ora - ultimoTocco < 350;
-  ultimoTocco = ora;
-  if (!vicino || e.touches.length || e.changedTouches.length !== 1) return;
-  const el = e.target instanceof Element ? e.target : e.target.parentElement;
+  const inizio = toccoInizio;
+  toccoInizio = null;
+  const p = e.changedTouches[0];
+  const tocco = inizio && !e.touches.length && e.changedTouches.length === 1
+    && Math.hypot(p.clientX - inizio.x, p.clientY - inizio.y) < 10
+    && e.timeStamp - inizio.t < 300;
+  if (!tocco) { ultimoTocco = null; return; }
+  const prima = ultimoTocco;
+  ultimoTocco = { x: p.clientX, y: p.clientY, t: e.timeStamp };
+  if (!prima || e.timeStamp - prima.t >= 350 || Math.hypot(p.clientX - prima.x, p.clientY - prima.y) > 40) return;
+  // Le icone sono disegni SVG, che non hanno .click(): si risale all'elemento HTML che le contiene
+  let el = e.target instanceof Element ? e.target : e.target.parentElement;
+  while (el && !(el instanceof HTMLElement)) el = el.parentElement;
   if (!el || el.closest('textarea, select, input:not([type="checkbox"])')) return;
   e.preventDefault();
   el.click();
 }, { passive: false });
+document.addEventListener('touchcancel', () => { toccoInizio = null; ultimoTocco = null; }, { passive: true });
 
 document.addEventListener('DOMContentLoaded', avvio);
