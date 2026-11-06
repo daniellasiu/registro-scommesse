@@ -6,6 +6,23 @@
 <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
+<script>
+  /* Applica subito il tema scelto nelle Impostazioni, prima che iOS legga il colore
+     della barra in alto (lo legge all'apertura e poi non lo cambia più). */
+  (function () {
+    try {
+      var t = JSON.parse(localStorage.getItem('registro-scommesse')).impostazioni.tema;
+      if (t !== 'chiaro' && t !== 'scuro') return;
+      var scuro = t === 'scuro';
+      document.documentElement.setAttribute('data-theme', scuro ? 'dark' : 'light');
+      document.querySelector('meta[name="color-scheme"]').content = scuro ? 'dark' : 'light';
+      document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+        m.removeAttribute('media');
+        m.content = scuro ? '#000000' : '#F2F2F7';
+      });
+    } catch (e) { /* nessuna preferenza salvata: segue l'iPhone */ }
+  })();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">

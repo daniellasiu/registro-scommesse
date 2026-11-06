@@ -8,7 +8,7 @@
 
    Le giocate NON passano da qui: stanno nella memoria del browser (archivio.js). */
 
-const VERSIONE = '6 nov 2026 · 7';
+const VERSIONE = '6 nov 2026 · 8';
 const CACHE = `registro-${VERSIONE}`;
 const FILE = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',

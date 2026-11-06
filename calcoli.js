@@ -22,7 +22,7 @@ const TIPI_CALCIO = ['1', 'X', '2', '1X', 'X2', '12', 'Over', 'Under', 'Goal', '
 const COMPETIZIONI = { campionati: 'Campionati', uefa: 'UEFA', nazionali: 'Nazionali' };
 const COMPETIZIONI_LUNGHE = { campionati: 'Campionati', uefa: 'Competizioni UEFA', nazionali: 'Nazionali', misto: 'Multiple miste' };
 const ESITI = { attesa: 'In attesa', vinta: 'Vinta', persa: 'Persa', rimborsata: 'Rimborsata', cashout: 'Cashout' };
-const AREE = { nba: 'NBA', calcio: 'Calcio', divertimento: 'Divertimento' };
+const AREE = { nba: 'NBA', calcio: 'Calcio', divertimento: 'Gambolate' };
 const FASI = { regular: 'Regular season', playoff: 'Playoff' };
 
 /* ---------- Formati ---------- */
@@ -155,7 +155,7 @@ function fineStimata(g) {
 }
 const daCompletare = g => g.esito === 'attesa' && new Date() >= fineStimata(g);
 
-/* Area a cui appartiene una giocata: nba, calcio o divertimento */
+/* Area a cui appartiene una giocata: nba, calcio o divertimento (sullo schermo: "Gambolate") */
 const areaDi = g => (g.divertimento ? 'divertimento' : g.area);
 
 /* ---------- Testi ---------- */

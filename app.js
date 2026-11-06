@@ -31,20 +31,43 @@ const trova = id => stato.giocate.find(g => g.id === id);
    Tema chiaro / scuro
    ========================================================= */
 
-const mediaScuro = matchMedia('(prefers-color-scheme: dark)');
-const temaScuro = () => stato.impostazioni.tema === 'scuro' || (stato.impostazioni.tema === 'auto' && mediaScuro.matches);
+/* iOS legge il colore della barra in alto (quella dell'ora) solo quando la pagina si apre.
+   Per questo il tema scelto si applica già in index.html, in Automatico le due indicazioni
+   con "media" le gestisce iOS, e nell'app della schermata Home un cambio di tema ricarica
+   la pagina (tornando dov'eri). */
+const appSchermataHome = navigator.standalone === true;
 
 function applicaTema() {
   const t = stato.impostazioni.tema;
   const root = document.documentElement;
   if (t === 'auto') delete root.dataset.theme;
   else root.dataset.theme = t === 'scuro' ? 'dark' : 'light';
-  $$('meta[name="theme-color"]').forEach(m => {
-    m.removeAttribute('media');
-    m.content = temaScuro() ? '#000000' : '#F2F2F7';
+  $('meta[name="color-scheme"]').content = t === 'auto' ? 'light dark' : t === 'scuro' ? 'dark' : 'light';
+  $$('meta[name="theme-color"]').forEach(m => m.remove());
+  const colori = t === 'auto'
+    ? [['#F2F2F7', '(prefers-color-scheme: light)'], ['#000000', '(prefers-color-scheme: dark)']]
+    : [[t === 'scuro' ? '#000000' : '#F2F2F7']];
+  colori.forEach(([colore, media]) => {
+    const m = document.createElement('meta');
+    m.name = 'theme-color';
+    m.content = colore;
+    if (media) m.media = media;
+    document.head.appendChild(m);
   });
 }
-mediaScuro.addEventListener('change', applicaTema);
+
+/* Ricarica tornando alla stessa sezione e allo stesso punto della pagina */
+function ricaricaQui() {
+  try {
+    sessionStorage.setItem('riapri', JSON.stringify({ tab: ui.tab, area: ui.area, scroll: $(`#tab-${ui.tab}`).scrollTop }));
+  } catch { /* senza memoria di sessione si riparte da Giocate */ }
+  location.reload();
+}
+
+// L'iPhone passa da chiaro a scuro (es. la sera) con il tema su Automatico
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (appSchermataHome && stato.impostazioni.tema === 'auto' && libero()) ricaricaQui();
+});
 
 /* =========================================================
    Componenti (restituiscono HTML)
@@ -544,9 +567,9 @@ function sezioneTipo() {
   return `<section class="f-gruppo" data-sezione="tipo">
     <div class="f-lista">
       <div class="f-riga blocco">${segmentato('area', [['nba', 'NBA'], ['calcio', 'Calcio']], b.area)}</div>
-      <div class="f-riga"><span class="f-etichetta">Per divertimento</span>${interruttore('divertimento', b.divertimento, 'Per divertimento')}</div>
+      <div class="f-riga"><span class="f-etichetta">Gambolata</span>${interruttore('divertimento', b.divertimento, 'Gambolata')}</div>
     </div>
-    <p class="piede">Le giocate per divertimento hanno statistiche a parte e non toccano la cassa.</p>
+    <p class="piede">Le gambolate hanno statistiche a parte e non toccano la cassa.</p>
   </section>`;
 }
 
@@ -1042,9 +1065,12 @@ const listaNumeri = testo => testo.split(/[\s;]+/).map(numero).filter(n => n && 
 $('#corpo-impostazioni').addEventListener('click', e => {
   const bTema = e.target.closest('.seg[data-seg="tema"] button');
   if (bTema) {
+    if (stato.impostazioni.tema === bTema.dataset.val) return;
     stato.impostazioni.tema = bTema.dataset.val;
     salva();
     applicaTema();
+    // Sull'iPhone la barra in alto si ricolora solo ricaricando: dopo il movimento del selettore
+    if (appSchermataHome) setTimeout(ricaricaQui, 380);
     return;
   }
   const az = e.target.closest('[data-az]');
@@ -1177,6 +1203,14 @@ let ricaricaInAttesa = false;
 const libero = () => !bozza && $('#scelte').hidden;
 
 function avvio() {
+  // Dopo un ricaricamento per il tema: si torna dov'eri
+  let riapri = null;
+  try {
+    riapri = JSON.parse(sessionStorage.getItem('riapri'));
+    sessionStorage.removeItem('riapri');
+  } catch { /* niente da riaprire */ }
+  if (riapri?.area && AREE[riapri.area]) ui.area = riapri.area;
+
   $$('[data-icona]').forEach(el => { el.innerHTML = icona(el.dataset.icona); });
   applicaTema();
   disegnaControlliGiocate();
@@ -1185,6 +1219,12 @@ function avvio() {
   $('#nuova').addEventListener('click', () => apriForm(null));
   renderGiocate();
   aggiornaBadge();
+  if (riapri?.tab && riapri.tab !== 'giocate' && $(`#tab-${riapri.tab}`)) mostraTab(riapri.tab);
+  if (riapri) {
+    const pagina = $(`#tab-${ui.tab}`);
+    pagina.scrollTop = riapri.scroll || 0;
+    pagina.dispatchEvent(new Event('scroll'));
+  }
 
   // Quando riapri l'app: controlla se c'è una versione nuova e aggiorna "da completare"
   document.addEventListener('visibilitychange', () => {
