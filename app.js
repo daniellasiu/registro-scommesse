@@ -4,6 +4,9 @@
    Stato
    ========================================================= */
 
+/* Da aumentare a ogni pubblicazione: compare in fondo alle Impostazioni */
+const VERSIONE = '6 nov 2026 · 5';
+
 let stato = caricaStato();
 const ui = { tab: 'giocate', area: stato.impostazioni.ultimi.area === 'calcio' ? 'calcio' : 'nba', limite: 40 };
 let bozza = null;          // giocata in corso di inserimento/modifica
@@ -1027,7 +1030,8 @@ function renderImpostazioni() {
       <input type="file" id="file-backup" accept="application/json,.json" hidden>
     </section>
 
-    <p class="piede" style="margin-top:26px">Sull’iPhone apri sempre l’app dall’icona nella schermata Home: le giocate salvate lì sono separate da quelle di Safari.</p>`;
+    <p class="piede" style="margin-top:26px">Sull’iPhone apri sempre l’app dall’icona nella schermata Home: le giocate salvate lì sono separate da quelle di Safari.</p>
+    <p class="piede" style="text-align:center;margin-top:20px">Registro scommesse · versione ${VERSIONE}</p>`;
 }
 
 const listaNumeri = testo => testo.split(/[\s;]+/).map(numero).filter(n => n && n > 0).sort((a, b) => a - b);
@@ -1164,8 +1168,31 @@ function avvio() {
 
   // Copia dei file sul telefono per usare l'app anche senza internet (sw.js)
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    const avevaVersione = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Quando arriva una versione nuova dell'app, ricarica (ma mai mentre stai scrivendo una giocata)
+    let ricaricata = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!avevaVersione || ricaricata) return;
+      ricaricata = true;
+      if (!bozza) location.reload();
+    });
   }
 }
+
+/* iOS: due tocchi ravvicinati fanno partire lo zoom. Al secondo tocco blocchiamo lo zoom
+   e passiamo noi il tocco all'elemento, così il pulsante funziona come sempre.
+   Nei campi di testo non si interviene: lì il doppio tocco serve a selezionare. */
+let ultimoTocco = 0;
+document.addEventListener('touchend', e => {
+  const ora = e.timeStamp;
+  const vicino = ora - ultimoTocco < 350;
+  ultimoTocco = ora;
+  if (!vicino || e.touches.length || e.changedTouches.length !== 1) return;
+  const el = e.target instanceof Element ? e.target : e.target.parentElement;
+  if (!el || el.closest('textarea, select, input:not([type="checkbox"])')) return;
+  e.preventDefault();
+  el.click();
+}, { passive: false });
 
 document.addEventListener('DOMContentLoaded', avvio);

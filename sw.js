@@ -5,7 +5,7 @@
    se la rete manca o è troppo lenta, usa la copia salvata.
    Le giocate NON passano da qui: stanno nella memoria del browser (archivio.js). */
 
-const CACHE = 'registro-v1';
+const CACHE = 'registro-v2';
 const FILE = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'archivio.js', 'calcoli.js', 'icone.js', 'grafici.js', 'app.js', 'statistiche.js',
@@ -34,7 +34,9 @@ function entro(promessa, ms) {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  const dallaRete = fetch(e.request).then(risposta => {
+  // no-cache: chiede sempre al sito se il file è cambiato (risposta rapida se è uguale),
+  // così una correzione pubblicata arriva subito invece che dopo 10 minuti
+  const dallaRete = fetch(e.request, { cache: 'no-cache' }).then(risposta => {
     if (risposta.ok) {
       const copia = risposta.clone();
       caches.open(CACHE).then(c => c.put(e.request, copia));
