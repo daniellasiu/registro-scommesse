@@ -28,7 +28,7 @@ function euroDa(t) {
 /* Righe pulite: spazi in ordine e via i pallini/icone letti come simboli all'inizio */
 function righeDi(testo) {
   return String(testo || '').replace(/\r/g, '').split('\n')
-    .map(r => r.replace(/\s+/g, ' ').trim().replace(/^[•·●○◦*®©@¤]+\s*/, '').trim())
+    .map(r => r.replace(/\s+/g, ' ').trim().replace(/^[•·●○◦*®©@¤°º]+\s*/, '').trim())
     .filter(Boolean);
 }
 
@@ -61,15 +61,18 @@ const SQUADRE_NBA = ['Atlanta Hawks', 'Boston Celtics', 'Brooklyn Nets', 'Charlo
   'Oklahoma City Thunder', 'Orlando Magic', 'Philadelphia 76ers', 'Phoenix Suns', 'Portland Trail Blazers',
   'Sacramento Kings', 'San Antonio Spurs', 'Toronto Raptors', 'Utah Jazz', 'Washington Wizards'];
 
-/* bet365 scrive "ORL Magic": meglio il nome intero, come su Sisal */
+/* bet365 scrive "ORL Magic", Sisal "LA Lakers": meglio il nome intero.
+   Davanti possono esserci simboli letti dalle magliette ("N SA Spurs") */
 function squadraNba(t) {
-  const m = t.match(/^[A-Z]{2,3}\s+(.+)$/);
+  const m = t.match(/\b[A-Z]{2,3}\s+((?:Trail\s+)?[A-Za-z0-9]+)$/);
   return (m && SQUADRE_NBA.find(s => s.endsWith(` ${m[1]}`))) || t;
 }
+const partitaNba = p => p.split(' - ').map(squadraNba).join(' - ');
 
 /* Sisal scrive "PODZIEMSKI Brandin" o "Thompson, Ausar": diventano "Brandin Podziemski", "Ausar Thompson" */
 const tuttoMaiuscolo = w => /[A-ZÀ-Ý]/.test(w) && w === w.toUpperCase();
 const parolaNormale = w => w.toLowerCase().replace(/(^|[-'’])([a-zà-ÿ])/g, (x, prima, lettera) => prima + lettera.toUpperCase());
+const RX_INIZIALI = /^([A-Z]\.)+$/;
 function nomeGiocatore(t) {
   let parole;
   if (t.includes(',')) {
@@ -79,8 +82,10 @@ function nomeGiocatore(t) {
     parole = t.trim().split(' ');
     const n = parole.findIndex(w => !tuttoMaiuscolo(w));
     if (n > 0) parole = [...parole.slice(n), ...parole.slice(0, n)];
+    // "WASHINGTON P.J.": tutto maiuscolo, il nome sono le iniziali in fondo
+    else if (n < 0 && parole.length > 1 && RX_INIZIALI.test(parole[parole.length - 1])) parole = [parole.pop(), ...parole];
   }
-  return parole.filter(Boolean).map(w => (tuttoMaiuscolo(w) && w.length > 1 ? parolaNormale(w) : w)).join(' ');
+  return parole.filter(Boolean).map(w => (tuttoMaiuscolo(w) && w.length > 1 && !RX_INIZIALI.test(w) ? parolaNormale(w) : w)).join(' ');
 }
 
 /* "Più di 2" → 2,5 · "Meno di 3" → 2,5 · "Over 2.5" → 2,5 */
@@ -131,7 +136,12 @@ const SCARTA_365 = [
   RX_NUMERO, /condividi/i, /hillside|new media malta/i, /^\(\(.*\)\)$/, /^\d{1,2}:\d{2}/,
   /^(gioco|responsabile|18\+|home|sport|live|scommesse|casino|bet365|vincente|perdente|avanti di)$/i,
   /^(lun|mar|mer|gio|ven|sab|dom)\s+\d/i, /^€/, /^[^A-Za-zÀ-ÿ0-9]+$/,
+  /bonus multipla|maggiorazione|^applicato una volta|riutilizza selezioni/i, /^[+-]?\d+(?:[.,]\d+)?%$/,
 ];
+// Data della partita nell'immagine di Condividi: "Sab 7 Nov" (l'ora sta sotto, "02:10")
+const MESI_BREVI = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+const RX_DATA_365 = /\b(?:Lun|Mar|Mer|Gio|Ven|Sab|Dom)\s+(\d{1,2})\s+(Gen|Feb|Mar|Apr|Mag|Giu|Lug|Ago|Set|Ott|Nov|Dic)\b(?:\s+(\d{1,2}):(\d{2}))?/;
+const due = n => String(n).padStart(2, '0');
 
 /* Riga che apre una selezione (o un Bet Builder) */
 function titolo365(r) {
@@ -176,7 +186,7 @@ function selezione365(blocco) {
   const casa = righe.find(r => /\(in casa\)/i.test(r));
   let squadre;
   if (fuori || casa) {
-    squadre = [fuori, casa].filter(Boolean).map(r => squadraNba(r.replace(/\s*\((in|fuori) casa\)/i, '').trim()));
+    squadre = [fuori, casa].filter(Boolean).map(r => squadraNba(r.replace(/\s*\((in|fuori) casa\).*$/i, '').trim()));
     righe = righe.filter(r => r !== fuori && r !== casa);
   } else {
     squadre = righe.slice(-2).map(r => r.replace(/^[^A-Za-zÀ-ÿ]+/, '').trim());
@@ -208,13 +218,15 @@ function selezione365(blocco) {
 function leggiBet365(tutte) {
   // Più schedine nello stesso screenshot: si prende la prima
   const testate = [];
-  tutte.forEach((r, i) => { if (/^€\s?[\d.]+,\d{2}\s+\S/.test(r) && !/ritorno|chiusa|cash ?out|vincit/i.test(r)) testate.push(i); });
+  tutte.forEach((r, i) => { if (/^€\s?[\d.]+,\d{2}\s+\S/.test(r) && !/ritorno|chiusa|cash ?out|vincit|maggiorazione/i.test(r)) testate.push(i); });
   const righe = testate.length >= 2 ? tutte.slice(testate[0], testate[1]) : tutte;
 
   let esito = 'attesa';
   let incasso = null;
   let importo = null;
+  let vincita = null;
   righe.forEach((r, i) => {
+    if (/^vincita/i.test(r) && vincita == null) vincita = euroDa(r) ?? euroDa(righe[i + 1]);
     if (/^vincente$/i.test(r)) esito = 'vinta';
     else if (/^perdente$/i.test(r)) esito = 'persa';
     else if (/scommessa chiusa/i.test(r)) { esito = 'cashout'; incasso = euroDa(r); }
@@ -222,13 +234,20 @@ function leggiBet365(tutte) {
   });
 
   const fine = righe.findIndex(r => /^punt\b/i.test(r));
-  const corpo = (fine >= 0 ? righe.slice(0, fine) : righe).filter(r => RX_QUOTA.test(r) || !SCARTA_365.some(x => x.test(r)));
-
   const blocchi = [];
   const sciolte = [];   // quote lette lontano dalla loro selezione
+  const date = [];      // date e ore delle partite, nell'ordine in cui arrivano
+  const ore = [];
   let cur = null;
-  corpo.forEach(r => {
+  (fine >= 0 ? righe.slice(0, fine) : righe).forEach(r => {
+    let x;
+    // (la data in cima all'immagine è quella di quando l'hai condivisa: arriva prima della prima selezione)
+    if (blocchi.length && (x = r.match(RX_DATA_365))) {
+      date.push(`${due(x[1])}/${due(MESI_BREVI.indexOf(x[2]) + 1)}`);
+      if (x[3]) ore.push(`${due(x[3])}:${x[4]}`);
+    } else if (blocchi.length && (x = r.match(/^(\d{1,2}):(\d{2})$/))) ore.push(`${due(x[1])}:${x[2]}`);
     if (RX_QUOTA.test(r)) { sciolte.push(quotaDa(r)); return; }
+    if (SCARTA_365.some(rx => rx.test(r))) return;
     const t = titolo365(r);
     // Dentro un Bet Builder le righe "Giocatore: 25+ punti" senza quota sono condizioni, non selezioni nuove
     const dentroCombo = cur && cur.titolo.combo;
@@ -239,8 +258,10 @@ function leggiBet365(tutte) {
   });
   blocchi.filter(b => b.titolo.quota == null).forEach(b => { if (sciolte.length) b.titolo.quota = sciolte.shift(); });
 
-  const selezioni = blocchi.map(selezione365);
-  return { bookmaker: 'bet365', schedine: Math.max(1, testate.length), importo, esito, incasso, quota: null, selezioni };
+  const selezioni = blocchi.map((b, k) => ({ ...selezione365(b), data: date[k] ? dataDa(date[k]) : null, orario: ore[k] || '' }));
+  // Quota vera = vincita ÷ puntata: comprende il bonus multipla e gli arrotondamenti (non con il cashout)
+  const quota = esito !== 'cashout' && importo && vincita > importo ? Math.round((vincita / importo) * 100) / 100 : null;
+  return { bookmaker: 'bet365', schedine: Math.max(1, testate.length), importo, esito, incasso, quota, selezioni };
 }
 
 /* =========================================================
@@ -275,11 +296,11 @@ function voceSisal(mercato, scelta, sportEvento) {
     : { sport: 'calcio', tipo: 'Altro', dettaglio: `${leggibile}: ${parolaNormale(s)}` };
 }
 
-const RX_DATA_SISAL = /^(oggi|domani|ieri|\d{2}\/\d{2})\s*-\s*(\d{2}):(\d{2})$/i;
-const RX_SCARTA_SISAL = /^(home|tipster|biglietto|mybets|promozioni|t|<|info biglietto|selfie bet)$|^\d{1,2}:\d{2}\s|risultati live|certificazione ufficiale|responsabilità circa|social del mondo|sisal\.it|^dipster$/i;
+const RX_DATA_SISAL = /^(oggi|domani|ieri|\d{2}\/\d{2})\s*-\s*(\d{2}):(\d{2})\s*[^\d\s]?$/i;   // a volte con un segno attaccato ("01:40ł")
+const RX_SCARTA_SISAL = /^(home|tipster|biglietto|mybets|promozioni|t|<|info biglietto|selfie bet)$|^\d{1,2}:\d{2}\s|risultati live|certificazione ufficiale|responsabilità circa|social del mondo|sisal\.it|^[a-z]?ipster$/i;
 
 /* "05/11" → data vera: l'anno è quello della giocata (o il più vicino a oggi) */
-function dataSisal(giorno, annoRif) {
+function dataDa(giorno, annoRif) {
   if (/oggi/i.test(giorno)) return oggiISO();
   if (/domani/i.test(giorno)) return domaniISO();
   if (/ieri/i.test(giorno)) return ieriISO();
@@ -298,6 +319,11 @@ function esitoSisal(t) {
   if (/rimborsat/i.test(t)) return 'rimborsata';
   return null;
 }
+
+/* Quota con accanto l'icona dell'orologio letta come lettera: "1.48 C" */
+const RX_QUOTA_ICONA = /^(\d{1,3}[.,]\d{2})(?:\s+[^\d\s.,]{1,2})?$/;
+/* Riga di sole parole con l'iniziale maiuscola ("Timberwolves", "Trail Blazers", "76ers"): non è un mercato */
+const RX_SOLO_NOMI = /^[A-ZÀ-Ý0-9][a-zà-ÿ0-9'’.]*(?: [A-ZÀ-Ý0-9][a-zà-ÿ0-9'’.]*){0,2}$/;
 
 /* Immagine "Il Mio Tip" (pulsante Condividi): tutte le partite, poi date e quote in fondo */
 function leggiSisalTip(rr) {
@@ -320,22 +346,30 @@ function leggiSisalTip(rr) {
     if (/^vincita/i.test(r)) { i++; continue; }
     if (esitoSisal(r) && /^tip/i.test(r)) { esito = esitoSisal(r); continue; }
     if ((x = r.match(RX_DATA_SISAL))) { date.push({ giorno: x[1], ora: `${x[2]}:${x[3]}` }); continue; }
-    if (RX_QUOTA.test(r)) { quote.push(quotaDa(r)); continue; }
+    if ((x = r.match(RX_QUOTA_ICONA))) { quote.push(quotaDa(x[1])); continue; }
     if (/^my combo$/i.test(r)) { if (cur) cur.combo = true; continue; }
     // Partita: "Detroit Pistons - Philadelphia 76ers"
     if (/\S\s+-\s+\S/.test(r) && !/:|U\/O|ALMENO/.test(r) && !tuttoMaiuscolo(r.replace(/[^A-Za-zÀ-ÿ]/g, ''))) {
-      cur = { partita: r, combo: false, mercati: [] };
+      cur = { partita: r, combo: false, quota: null, mercati: [] };
       eventi.push(cur);
       continue;
     }
     if (!cur) continue;
-    const pulita = r.replace(/^[Oo0]\s+(?=[A-ZÀ-Ý])/, '');
+    // Nome della partita andato a capo: "New Orleans Pelicans - Minnesota" + "Timberwolves"
+    if (!cur.mercati.length && RX_SOLO_NOMI.test(r)) { cur.partita += ` ${r}`; continue; }
+    let pulita = r.replace(/^[Oo0]\s+(?=[A-ZÀ-Ý])/, '');
+    // Quota sulla stessa riga della scelta ("...: SI 1.75")
+    if ((x = pulita.match(/^(.*[A-Za-zÀ-ÿ])\s+(\d{1,3}[.,]\d{2})(?:\s+[^\d\s.,]{1,2})?$/)) && !/U\/O$/i.test(x[1])) {
+      pulita = x[1];
+      cur.quota = quotaDa(x[2]);
+    }
     const ultimo = cur.mercati[cur.mercati.length - 1];
     // Il mercato va a capo finché non arriva ": SCELTA"
     if (ultimo && !/:\s*\S/.test(ultimo.testo)) ultimo.testo += ` ${pulita}`;
     else if (/:|U\/O|ALMENO|[A-Z]{3,}/.test(pulita)) cur.mercati.push({ testo: pulita });
   }
 
+  eventi.filter(ev => ev.quota == null).forEach(ev => { if (quote.length) ev.quota = quote.shift(); });
   const selezioni = eventi.map((ev, k) => {
     const voci = ev.mercati.map(mm => {
       const i = mm.testo.lastIndexOf(':');
@@ -343,10 +377,12 @@ function leggiSisalTip(rr) {
     });
     const sport = voci.some(v => v.sport === 'nba') ? 'nba' : 'calcio';
     const d = date[k];
-    const base = { sport, partita: ev.partita, quota: quote[k] ?? null, data: d ? dataSisal(d.giorno, rif) : null, orario: d ? d.ora : '' };
+    const partita = sport === 'nba' ? partitaNba(ev.partita) : ev.partita;
+    const base = { sport, partita, quota: ev.quota, data: d ? dataDa(d.giorno, rif) : null, orario: d ? d.ora : '' };
     if (voci.length > 1 || ev.combo) return { ...base, condizioni: voci.map(({ sport: _, ...v }) => v) };
     return { ...base, ...(voci[0] || {}), sport };
   });
+  if (selezioni.length === 1 && selezioni[0].quota == null) selezioni[0].quota = quota;
   return { bookmaker: 'sisal', schedine: 1, importo, esito, incasso: null, quota, selezioni };
 }
 
@@ -398,7 +434,7 @@ function leggiSisalDettaglio(rr) {
       continue;
     }
     if (!cur) continue;
-    if ((x = r.match(RX_DATA_SISAL))) { cur.data = dataSisal(x[1], rif); cur.orario = `${x[2]}:${x[3]}`; continue; }
+    if ((x = r.match(RX_DATA_SISAL))) { cur.data = dataDa(x[1], rif); cur.orario = `${x[2]}:${x[3]}`; continue; }
     if (cur.squadre.length < 2 && !cur.data) { cur.squadre.push(r); continue; }
     // "OVER (1.72)": scelta e quota del mercato appena letto
     if ((x = r.match(/^(.+?)\s*\((\d{1,3}[.,]\d{2})\)$/))) {
@@ -416,7 +452,8 @@ function leggiSisalDettaglio(rr) {
     const nba = /nba|eurolega|euroleague|eurocup|basket|lba\b/i.test(ev.competizione);
     const voci = ev.mercati.map(mm => ({ ...voceSisal(mm.testo, mm.scelta || '', nba ? 'nba' : 'calcio'), quota: mm.quota }));
     const sport = nba || voci.some(v => v.sport === 'nba') ? 'nba' : 'calcio';
-    const base = { sport, partita: ev.squadre.join(' - '), data: ev.data, orario: ev.orario };
+    const partita = ev.squadre.join(' - ');
+    const base = { sport, partita: sport === 'nba' ? partitaNba(partita) : partita, data: ev.data, orario: ev.orario };
     if (sport === 'calcio') base.competizione = competizioneDa(ev.competizione);
     if (voci.length > 1 && ev.combo) {
       return { ...base, quota: voci.find(v => v.quota)?.quota ?? null, condizioni: voci.map(({ sport: _, quota: __, ...v }) => v) };
