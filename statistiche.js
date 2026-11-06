@@ -211,7 +211,7 @@ const ANALISI = {
   prestazioni: {
     titolo: 'Tipo di prestazione', icona: 'elenco', colore: 'teal', nota: NOTA_MULTIPLE,
     disponibile: c => c.some(g => g.selezioni.some(s => s.sport === 'nba')),
-    righe: c => perNetto(perSelezione(c, s => `${s.tipo} ${s.verso === 'under' ? 'Under' : 'Over'}`, s => s.sport === 'nba')),
+    righe: c => perNetto(perSelezione(c, chiavePrestazione, s => s.sport === 'nba')),
   },
   mercati: {
     titolo: 'Mercati', icona: 'elenco', colore: 'teal', nota: NOTA_MULTIPLE,

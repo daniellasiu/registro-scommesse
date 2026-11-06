@@ -273,7 +273,7 @@ function rigaGiocata(g) {
   const parti = g.esito === 'attesa' ? [quando(g), cosa, puntata, quotaTesto(quotaEffettiva(g))] : [cosa, puntata, quotaTesto(quotaEffettiva(g))];
   let destra;
   if (g.esito === 'attesa') {
-    destra = multi
+    destra = segnaAPezzi(g)
       ? `<div class="riga-dx"><button type="button" class="capsula-tinta" data-az="segna">Segna</button></div>`
       : `<div class="riga-dx">
           <button type="button" class="tondo pos" data-az="vinta" aria-label="Segna come vinta">${icona('spunta')}${APTICO}</button>
@@ -443,6 +443,25 @@ function nuovaSelezione(sport) {
   };
 }
 
+/* Condizione di un combo: per l'NBA giocatore + prestazione, per il calcio mercato + dettaglio */
+function nuovaCondizione(sport) {
+  const u = stato.impostazioni.ultimi;
+  return sport === 'nba'
+    ? { giocatore: '', tipo: u.tipoNba, verso: 'over', linea: '', esito: 'attesa' }
+    : { tipo: u.tipoCalcio, dettaglio: '', esito: 'attesa' };
+}
+const condizioneDi = (sport, s) => (sport === 'nba'
+  ? { giocatore: s.giocatore, tipo: s.tipo, verso: s.verso, linea: s.linea, esito: s.esito }
+  : { tipo: s.tipo, dettaglio: s.dettaglio, esito: s.esito });
+
+/* Nella scheda data-sel vale "2" per la selezione 2 e "2:1" per la sua condizione 1 */
+const indiceSel = sel => Number(String(sel).split(':')[0]);
+function oggettoSel(sel) {
+  const [i, k] = String(sel).split(':');
+  const s = bozza.selezioni[Number(i)];
+  return k != null ? s.condizioni[Number(k)] : s;
+}
+
 const quandoDi = iso => (iso === oggiISO() ? 'oggi' : iso === domaniISO() ? 'domani' : 'altra');
 
 function bozzaDa(g) {
@@ -450,10 +469,16 @@ function bozzaDa(g) {
   return {
     id: g.id, creata: g.creata, area: g.area, divertimento: g.divertimento, fase: g.fase || faseAuto(g.data),
     data: g.data, quando: quandoDi(g.data), orario: g.orario || '', fiducia: g.fiducia ?? null, note: g.note || '',
-    selezioni: g.selezioni.map(s => ({
-      ...nuovaSelezione(s.sport), ...s,
-      quota: decimale(s.quota), linea: s.linea != null ? decimale(s.linea) : '',
-    })),
+    selezioni: g.selezioni.map(s => {
+      const sel = {
+        ...nuovaSelezione(s.sport), ...s,
+        quota: s.quota != null ? decimale(s.quota) : '', linea: s.linea != null ? decimale(s.linea) : '',
+      };
+      if (haCondizioni(s)) {
+        sel.condizioni = s.condizioni.map(c => ({ ...nuovaCondizione(s.sport), ...c, linea: c.linea != null ? decimale(c.linea) : '' }));
+      }
+      return sel;
+    }),
     quotaTot: g.quotaManuale ? decimale(g.quota) : '',
     stake: g.stake != null ? decimale(g.stake) : imp.ultimi.stake,
     base: g.base ?? imp.base,
@@ -496,7 +521,8 @@ function erroriBozza(b) {
   const errori = [];
   b.selezioni.forEach((s, i) => {
     const dove = multi ? ` (selezione ${i + 1})` : '';
-    if (s.sport === 'nba' && !s.giocatore.trim()) errori.push(`Manca il giocatore${dove}`);
+    const voci = haCondizioni(s) ? s.condizioni : [s];
+    if (s.sport === 'nba' && voci.some(c => !String(c.giocatore || '').trim())) errori.push(`Manca il giocatore${dove}`);
     if (s.sport === 'calcio' && !s.partita.trim()) errori.push(`Manca la partita${dove}`);
     const q = numero(s.quota);
     if (!q || q <= 1) errori.push(`Manca la quota${dove}`);
@@ -512,11 +538,17 @@ function erroriBozza(b) {
 function costruisciGiocata(b) {
   const multi = b.selezioni.length > 1;
   const quotaManuale = numero(b.quotaTot);
+  const condizione = (sport, c) => (sport === 'nba'
+    ? { giocatore: String(c.giocatore || '').trim(), tipo: c.tipo, verso: c.verso, linea: numero(c.linea), esito: c.esito || 'attesa' }
+    : { tipo: c.tipo, dettaglio: String(c.dettaglio || '').trim(), esito: c.esito || 'attesa' });
   const selezioni = b.selezioni.map(s => {
-    const comune = { sport: s.sport, partita: s.partita.trim(), tipo: s.tipo, quota: numero(s.quota), esito: s.esito || 'attesa' };
-    return s.sport === 'nba'
-      ? { ...comune, giocatore: s.giocatore.trim(), verso: s.verso, linea: numero(s.linea) }
-      : { ...comune, competizione: s.competizione, dettaglio: s.dettaglio.trim() };
+    const comune = { sport: s.sport, partita: s.partita.trim(), quota: numero(s.quota) };
+    if (s.sport === 'calcio') comune.competizione = s.competizione;
+    if (haCondizioni(s)) {
+      const condizioni = s.condizioni.map(c => condizione(s.sport, c));
+      return { ...comune, condizioni, esito: esitoCombo({ condizioni }) };
+    }
+    return { ...comune, ...condizione(s.sport, s) };
   });
   const g = {
     id: b.id || nuovoId(),
@@ -537,7 +569,7 @@ function costruisciGiocata(b) {
     esito: b.esito,
     incasso: b.esito === 'cashout' ? numero(b.incasso) : null,
   };
-  if (multi) { if (g.esito !== 'cashout') g.esito = esitoDaSelezioni(g); }
+  if (segnaAPezzi(g)) { if (g.esito !== 'cashout') g.esito = esitoDaSelezioni(g); }
   else impostaEsitoGiocata(g, g.esito);
   return g;
 }
@@ -549,19 +581,25 @@ function sezioneEsito() {
   const incasso = b.esito === 'cashout'
     ? `<div class="f-riga"><span class="f-etichetta">Incassato</span><input class="campo-riga campo-dx" data-campo="incasso" inputmode="decimal" placeholder="0,00 €" value="${esc(b.incasso)}"></div>`
     : '';
-  if (b.selezioni.length > 1) {
-    const righe = b.selezioni.map((s, i) => `
+  if (segnaAPezzi(b)) {
+    // Una riga per selezione; i combo hanno una riga per condizione
+    const riga = (titolo, sotto, esito, sel) => `
       <div class="f-riga riga-esito-sel">
-        <div class="riga-testi"><div class="riga-titolo">${esc(nomeSelezione(s) || `Selezione ${i + 1}`)}</div><div class="riga-sotto">${esc(descrizioneSelezione(s))}</div></div>
-        ${segmentato('esitoSel', [['attesa', icona('trattino'), 'In attesa'], ['vinta', icona('spunta'), 'Vinta'], ['persa', icona('croce'), 'Persa'], ['annullata', icona('barrato'), 'Annullata']], s.esito, { classe: 'seg-piccolo', sel: i })}
-      </div>`).join('');
+        <div class="riga-testi"><div class="riga-titolo">${esc(titolo)}</div><div class="riga-sotto">${esc(sotto)}</div></div>
+        ${segmentato('esitoSel', [['attesa', icona('trattino'), 'In attesa'], ['vinta', icona('spunta'), 'Vinta'], ['persa', icona('croce'), 'Persa'], ['annullata', icona('barrato'), 'Annullata']], esito, { classe: 'seg-piccolo', sel })}
+      </div>`;
+    const righe = b.selezioni.flatMap((s, i) => (haCondizioni(s)
+      ? s.condizioni.map((c, k) => (s.sport === 'nba'
+        ? riga(c.giocatore || `Condizione ${k + 1}`, prestazione(c), c.esito, `${i}:${k}`)
+        : riga(mercatoCalcio(c) || `Condizione ${k + 1}`, s.partita, c.esito, `${i}:${k}`)))
+      : [riga(nomeSelezione(s) || `Selezione ${i + 1}`, descrizioneSelezione(s), s.esito, i)])).join('');
     return `<section class="f-gruppo" data-sezione="esito">
       <h3 class="intestazione">Esito</h3>
       <div class="f-lista">${righe}
         <div class="f-riga"><span class="f-etichetta">Chiusa con cashout</span>${interruttore('cashout', b.esito === 'cashout', 'Chiusa con cashout')}</div>
         ${incasso}
       </div>
-      <p class="piede" id="f-risultato">Segna ogni selezione: l’esito della multipla si calcola da solo.</p>
+      <p class="piede" id="f-risultato">${b.selezioni.length > 1 ? 'Segna ogni selezione: l’esito della multipla si calcola da solo.' : 'Segna ogni condizione: l’esito del combo si calcola da solo.'}</p>
     </section>`;
   }
   return `<section class="f-gruppo" data-sezione="esito">
@@ -585,29 +623,65 @@ function sezioneTipo() {
   </section>`;
 }
 
+/* Campi di una giocata semplice o di una condizione di un combo (sel: "2" oppure "2:1") */
+function campiPrestazione(sport, c, sel) {
+  const attr = `data-sel="${sel}"`;
+  if (sport === 'nba') {
+    // Doppia doppia e simili non hanno la linea: solo sì / no
+    const siNo = TIPI_SI_NO.includes(c.tipo);
+    const verso = siNo
+      ? `<div class="f-riga blocco">${segmentato('verso', [['over', 'Sì'], ['under', 'No']], c.verso, { classe: 'seg-piccolo', sel })}</div>`
+      : `<div class="f-riga">${segmentato('verso', [['over', 'Over'], ['under', 'Under']], c.verso, { classe: 'seg-piccolo stretto', sel })}
+           <input class="campo-riga campo-dx" data-campo="linea" ${attr} inputmode="decimal" placeholder="Linea, es. 25,5" value="${esc(c.linea)}"></div>`;
+    return `<div class="f-riga"><input class="campo-riga" data-campo="giocatore" ${attr} list="lista-giocatori" placeholder="Giocatore" value="${esc(c.giocatore)}" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
+      <div class="f-riga blocco"><div class="chips">${TIPI_NBA.map(t => chip('tipo', t, t, t === c.tipo, sel)).join('')}</div></div>
+      ${verso}`;
+  }
+  return `<div class="f-riga blocco"><div class="chips">${TIPI_CALCIO.map(t => chip('tipo', t, t, t === c.tipo, sel)).join('')}</div></div>
+    <div class="f-riga"><input class="campo-riga" data-campo="dettaglio" ${attr} placeholder="Dettaglio, es. 2,5 (facoltativo)" value="${esc(c.dettaglio)}" autocomplete="off"></div>`;
+}
+
 function sezioneSelezione(s, i) {
   const multi = bozza.selezioni.length > 1;
+  const combo = haCondizioni(s);
   const attr = `data-sel="${i}"`;
-  const testa = multi
-    ? `<h3 class="intestazione">Selezione ${i + 1}<button type="button" class="link link-rosso a-destra" data-az="rimuovi" ${attr}>Rimuovi</button></h3>`
-    : '<h3 class="intestazione">Giocata</h3>';
+  const titolo = multi ? `Selezione ${i + 1}${combo ? ' · combo' : ''}` : combo ? 'Combo' : 'Giocata';
+  const testa = `<h3 class="intestazione">${titolo}${multi ? `<button type="button" class="link link-rosso a-destra" data-az="rimuovi" ${attr}>Rimuovi</button>` : ''}</h3>`;
   const sport = multi ? `<div class="f-riga blocco">${segmentato('sport', [['nba', 'NBA'], ['calcio', 'Calcio']], s.sport, { classe: 'seg-piccolo', sel: i })}</div>` : '';
-  const campi = s.sport === 'nba'
-    ? `<div class="f-riga"><input class="campo-riga" data-campo="giocatore" ${attr} list="lista-giocatori" placeholder="Giocatore" value="${esc(s.giocatore)}" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
-       <div class="f-riga blocco"><div class="chips">${TIPI_NBA.map(t => chip('tipo', t, t, t === s.tipo, i)).join('')}</div></div>
-       <div class="f-riga">${segmentato('verso', [['over', 'Over'], ['under', 'Under']], s.verso, { classe: 'seg-piccolo stretto', sel: i })}
-         <input class="campo-riga campo-dx" data-campo="linea" ${attr} inputmode="decimal" placeholder="Linea, es. 25,5" value="${esc(s.linea)}"></div>
-       <div class="f-riga"><input class="campo-riga" data-campo="partita" ${attr} list="lista-partite" placeholder="Partita (facoltativa)" value="${esc(s.partita)}" autocomplete="off" autocapitalize="words"></div>`
+  const partita = s.sport === 'nba'
+    ? `<div class="f-riga"><input class="campo-riga" data-campo="partita" ${attr} list="lista-partite" placeholder="Partita (facoltativa)" value="${esc(s.partita)}" autocomplete="off" autocapitalize="words"></div>`
     : `<div class="f-riga"><input class="campo-riga" data-campo="partita" ${attr} list="lista-partite" placeholder="Partita, es. Inter - Milan" value="${esc(s.partita)}" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
-       <div class="f-riga blocco">${segmentato('competizione', Object.entries(COMPETIZIONI), s.competizione, { sel: i })}</div>
-       <div class="f-riga blocco"><div class="chips">${TIPI_CALCIO.map(t => chip('tipo', t, t, t === s.tipo, i)).join('')}</div></div>
-       <div class="f-riga"><input class="campo-riga" data-campo="dettaglio" ${attr} placeholder="Dettaglio, es. 2,5 (facoltativo)" value="${esc(s.dettaglio)}" autocomplete="off"></div>`;
+       <div class="f-riga blocco">${segmentato('competizione', Object.entries(COMPETIZIONI), s.competizione, { sel: i })}</div>`;
+  const aggiungi = `<button type="button" class="f-riga f-azione toccabile" data-az="aggiungi-cond" ${attr}>${icona('piu')}<span>Aggiungi condizione</span></button>`;
+  const quota = `<div class="f-riga"><span class="f-etichetta">Quota</span><input class="campo-riga campo-dx" data-campo="quota" ${attr} inputmode="decimal" placeholder="1,85" value="${esc(s.quota)}"></div>`;
+
+  if (!combo) {
+    const campi = s.sport === 'nba' ? campiPrestazione('nba', s, i) + partita : partita + campiPrestazione('calcio', s, i);
+    const piede = multi ? '' : '<p class="piede">Bet Builder o My Combo: aggiungi le altre condizioni della stessa partita, con una quota sola.</p>';
+    return `<section class="f-gruppo" data-sezione="sel-${i}">
+      ${testa}
+      <div class="f-lista">${sport}${campi}${aggiungi}${quota}</div>
+      ${piede}
+    </section>`;
+  }
+  // Combo: partita in alto, poi le condizioni una sotto l'altra, poi la quota unica
+  const condizioni = s.condizioni.map((c, k) => `
+    <h3 class="intestazione">Condizione ${k + 1}<button type="button" class="link link-rosso a-destra" data-az="rimuovi" data-sel="${i}:${k}">Rimuovi</button></h3>
+    <div class="f-lista" data-condizione="${i}:${k}">${campiPrestazione(s.sport, c, `${i}:${k}`)}</div>`).join('');
   return `<section class="f-gruppo" data-sezione="sel-${i}">
     ${testa}
-    <div class="f-lista">
-      ${sport}${campi}
-      <div class="f-riga"><span class="f-etichetta">Quota</span><input class="campo-riga campo-dx" data-campo="quota" ${attr} inputmode="decimal" placeholder="1,85" value="${esc(s.quota)}"></div>
-    </div>
+    <div class="f-lista">${sport}${partita}</div>
+    ${condizioni}
+    <div class="f-lista">${aggiungi}${quota}</div>
+  </section>`;
+}
+
+/* In cima a una giocata nuova: compila la scheda dal testo copiato dal comando rapido */
+function sezioneIncolla() {
+  const da = bozza.daSchedina;
+  return `<section class="f-gruppo" data-sezione="incolla">
+    <div class="f-lista"><button type="button" class="f-riga f-azione toccabile" data-az="incolla">${icona('appunti')}<span>Incolla schedina</span></button></div>
+    <p class="piede">${da ? `Compilata dalla schedina ${esc(da)}: controlla i campi e tocca Aggiungi.` : 'Prima condividi lo screenshot con il comando rapido «Registra giocata».'}</p>
   </section>`;
 }
 
@@ -681,7 +755,7 @@ function sezioneAltro() {
 
 function valoriUsati(campo) {
   const set = new Set();
-  stato.giocate.forEach(g => g.selezioni.forEach(s => s[campo] && set.add(s[campo])));
+  stato.giocate.forEach(g => g.selezioni.forEach(s => [s, ...(s.condizioni || [])].forEach(x => x[campo] && set.add(x[campo]))));
   return [...set].sort((a, c) => a.localeCompare(c, 'it'));
 }
 
@@ -696,7 +770,8 @@ function disegnaForm() {
 
   const b = bozza;
   corpo.innerHTML = [
-    b.id ? sezioneEsito() : '',
+    b.id ? '' : sezioneIncolla(),
+    b.id || b.mostraEsito ? sezioneEsito() : '',
     sezioneTipo(),
     ...b.selezioni.map((s, i) => sezioneSelezione(s, i)),
     sezioneAggiungi(),
@@ -741,7 +816,7 @@ function aggiornaDerivati() {
 
   const errori = erroriBozza(b);
   const risultato = $('#f-risultato', f);
-  if (risultato && b.selezioni.length === 1) {
+  if (risultato && !segnaAPezzi(b)) {
     const n = errori.length ? null : netto(costruisciGiocata(b));
     risultato.textContent = b.esito === 'attesa' || n == null ? '' : `Risultato: ${euroSegno(n)}`;
   }
@@ -824,7 +899,7 @@ $('#velo').addEventListener('click', () => { if (bozza) annullaForm(); });
 
 function impostaSeg(campo, val, sel) {
   const b = bozza;
-  const s = sel != null ? b.selezioni[Number(sel)] : null;
+  const s = sel != null ? oggettoSel(sel) : null;
   switch (campo) {
     case 'area':
       if (b.area === val) return;
@@ -846,11 +921,14 @@ function impostaSeg(campo, val, sel) {
       s[campo] = val;
       aggiornaDerivati();
       break;
-    case 'esitoSel':
+    case 'esitoSel': {
       s.esito = val;
+      const sel0 = b.selezioni[indiceSel(sel)];
+      if (haCondizioni(sel0)) sel0.esito = esitoCombo(sel0);
       if (b.esito !== 'cashout') b.esito = esitoDaSelezioni(b);
       aggiornaDerivati();
       break;
+    }
     case 'esito': {
       const prima = b.esito;
       b.esito = val;
@@ -884,7 +962,11 @@ $('#foglio').addEventListener('click', async e => {
   if (c) {
     const nome = c.dataset.chip;
     if (nome === 'tipo') {
-      b.selezioni[Number(c.dataset.sel)].tipo = c.dataset.val;
+      const o = oggettoSel(c.dataset.sel);
+      const cambiaForma = TIPI_SI_NO.includes(o.tipo) !== TIPI_SI_NO.includes(c.dataset.val);
+      o.tipo = c.dataset.val;
+      // Da "Punti" a "Doppia doppia" (o viceversa) cambia la riga sotto: Over/Under + linea oppure Sì/No
+      if (cambiaForma) { disegnaForm(); return; }
       $$(`[data-chip="tipo"][data-sel="${c.dataset.sel}"]`, c.parentElement).forEach(x => x.classList.toggle('attivo', x === c));
     } else {
       b[nome] = c.dataset.val;
@@ -911,11 +993,32 @@ $('#foglio').addEventListener('click', async e => {
       ultima?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       break;
     }
+    case 'incolla':
+      incollaSchedina();
+      break;
+    case 'aggiungi-cond': {
+      const i = Number(az.dataset.sel);
+      const s = b.selezioni[i];
+      if (!haCondizioni(s)) s.condizioni = [condizioneDi(s.sport, s)];
+      s.condizioni.push(nuovaCondizione(s.sport));
+      s.esito = esitoCombo(s);
+      disegnaForm();
+      $(`#foglio [data-condizione="${i}:${s.condizioni.length - 1}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+    }
     case 'rimuovi':
-      b.selezioni.splice(Number(az.dataset.sel), 1);
-      if (b.selezioni.length === 1 && b.esito !== 'cashout') {
-        const e1 = b.selezioni[0].esito;
-        b.esito = e1 === 'annullata' ? 'rimborsata' : e1;
+      if (az.dataset.sel.includes(':')) {
+        // Condizione di un combo: se ne resta una sola il combo torna una giocata semplice
+        const [i, k] = az.dataset.sel.split(':').map(Number);
+        const s = b.selezioni[i];
+        s.condizioni.splice(k, 1);
+        if (s.condizioni.length === 1) { Object.assign(s, s.condizioni[0]); delete s.condizioni; }
+        else s.esito = esitoCombo(s);
+      } else b.selezioni.splice(Number(az.dataset.sel), 1);
+      // L'esito della giocata segue quello che resta
+      if (b.esito !== 'cashout') {
+        if (segnaAPezzi(b)) b.esito = esitoDaSelezioni(b);
+        else b.esito = b.selezioni[0].esito === 'annullata' ? 'rimborsata' : b.selezioni[0].esito;
       }
       disegnaForm();
       break;
@@ -946,7 +1049,7 @@ $('#foglio').addEventListener('input', e => {
   const el = e.target;
   const campo = el.dataset.campo;
   if (!bozza || !campo || el.type === 'checkbox' || el.type === 'date') return;
-  if (el.dataset.sel != null) bozza.selezioni[Number(el.dataset.sel)][campo] = el.value;
+  if (el.dataset.sel != null) oggettoSel(el.dataset.sel)[campo] = el.value;
   else bozza[campo] = el.value;
   aggiornaDerivati();
 });
@@ -982,11 +1085,12 @@ function salvaBozza() {
   // Ricorda le ultime scelte per velocizzare il prossimo inserimento
   const u = stato.impostazioni.ultimi;
   const ultima = g.selezioni[g.selezioni.length - 1];
+  const ultimoTipo = (haCondizioni(ultima) ? ultima.condizioni[ultima.condizioni.length - 1] : ultima).tipo;
   u.area = g.area;
   if (g.stake != null) u.stake = decimale(g.stake);
   else if (!g.divertimento) u.importo = decimale(g.importo);
-  if (ultima.sport === 'nba') u.tipoNba = ultima.tipo;
-  else { u.tipoCalcio = ultima.tipo; u.competizione = ultima.competizione; }
+  if (ultima.sport === 'nba') u.tipoNba = ultimoTipo;
+  else { u.tipoCalcio = ultimoTipo; u.competizione = ultima.competizione; }
 
   const nuova = !b.id;
   salva();
@@ -995,6 +1099,74 @@ function salvaBozza() {
   if (nuova) { ui.area = areaDi(g); if (ui.tab === 'giocate') disegnaControlliGiocate(); }
   aggiornaTutto();
   notifica(nuova ? 'Giocata aggiunta' : 'Modifiche salvate');
+}
+
+/* =========================================================
+   Schedina incollata (testo copiato dal comando rapido "Registra giocata")
+   ========================================================= */
+
+/* iOS chiede "Incolla?" la prima volta: la lettura deve partire subito dal tocco */
+async function incollaSchedina() {
+  let testo;
+  try {
+    testo = await navigator.clipboard.readText();
+  } catch {
+    notifica('Non riesco a leggere gli appunti', { icona: 'avviso', tono: 'testo-avviso' });
+    return;
+  }
+  if (bozza && !bozza.id) applicaSchedina(testo);
+}
+
+function applicaSchedina(testo) {
+  const letta = leggiSchedina(testo);
+  if (!letta) {
+    notifica('Negli appunti non c’è una schedina bet365 o Sisal', { icona: 'avviso', tono: 'testo-avviso', durata: 3200 });
+    return false;
+  }
+  const imp = stato.impostazioni;
+  const u = imp.ultimi;
+  // Area: quella della maggior parte delle selezioni (multiple miste: si cambia a mano)
+  const nba = letta.selezioni.filter(s => s.sport === 'nba').length;
+  const area = nba * 2 >= letta.selezioni.length ? 'nba' : 'calcio';
+  const data = letta.data || oggiISO();
+  // Giocatori già nel registro: si tiene il nome scritto come lì
+  const noti = valoriUsati('giocatore');
+  const noto = n => (n && noti.find(x => x.toLowerCase() === n.toLowerCase())) || n;
+  // Schedina già chiusa: vinta = tutto vinto; persa = cosa è saltato lo segni tu (le icone non sono testo)
+  const esitoSel = { vinta: 'vinta', rimborsata: 'annullata' }[letta.esito] || 'attesa';
+  const selezioni = letta.selezioni.map(s => {
+    const sel = { ...s, esito: esitoSel };
+    if (s.sport === 'calcio' && !s.competizione) sel.competizione = u.competizione;
+    if (s.giocatore) sel.giocatore = noto(s.giocatore);
+    if (haCondizioni(s)) sel.condizioni = s.condizioni.map(c => ({ ...c, giocatore: noto(c.giocatore), esito: esitoSel }));
+    return sel;
+  });
+  const semplice = selezioni.length === 1 && !haCondizioni(selezioni[0]);
+  if (semplice && letta.esito === 'persa') selezioni[0].esito = 'persa';
+
+  const b = bozzaDa({
+    id: null, creata: null, area, divertimento: bozza.divertimento, fase: faseAuto(data), data,
+    orario: letta.orario, fiducia: null, note: letta.note, selezioni,
+    quota: letta.quota, quotaManuale: false, stake: null, base: imp.base,
+    importo: letta.importo ?? numero(u.importo), esito: letta.esito, incasso: letta.incasso,
+  });
+  if (usaStake(b)) b.stake = letta.importo ? decimale(arrot((letta.importo / imp.base) * 100)) : u.stake;
+  // Quota totale scritta a mano solo se il bookmaker l'ha arrotondata o maggiorata
+  const auto = quotaAuto(b);
+  if (b.selezioni.length > 1 && letta.quota && auto && Math.abs(auto - letta.quota) > 0.015) b.quotaTot = decimale(letta.quota);
+  if (letta.esito !== 'cashout' && !semplice) b.esito = esitoDaSelezioni(b);
+  b.mostraEsito = letta.esito !== 'attesa';
+  b.daSchedina = letta.bookmaker === 'sisal' ? 'Sisal' : 'bet365';
+  bozza = b;
+  disegnaForm();
+  $('#foglio .foglio-corpo').scrollTop = 0;
+
+  const errori = erroriBozza(b);
+  const avviso = letta.schedine > 1 ? `Nell’immagine ci sono ${letta.schedine} schedine: ho preso la prima`
+    : letta.esito === 'persa' && !semplice ? 'Schedina persa: segna cosa è saltato'
+      : errori.length ? `${errori[0]}: completala a mano` : '';
+  notifica(avviso || 'Schedina letta: controlla e tocca Aggiungi', avviso ? { icona: 'avviso', tono: 'testo-avviso', durata: 3500 } : {});
+  return true;
 }
 
 /* =========================================================
@@ -1132,7 +1304,11 @@ function giocataValida(g) {
     && Array.isArray(g.selezioni) && g.selezioni.length > 0
     && g.selezioni.every(x => x && (x.sport === 'nba' || x.sport === 'calcio') && numeroPositivo(x.quota)
       && testoOpz(x.partita) && testoOpz(x.dettaglio)
-      && (x.sport === 'nba' ? typeof x.giocatore === 'string' : testoOpz(x.giocatore)));
+      && (haProprio(x, 'condizioni')
+        // Combo: ogni condizione ha i suoi campi
+        ? Array.isArray(x.condizioni) && x.condizioni.length > 0 && x.condizioni.every(c => c && typeof c === 'object'
+          && (x.sport === 'nba' ? typeof c.giocatore === 'string' : testoOpz(c.dettaglio)))
+        : (x.sport === 'nba' ? typeof x.giocatore === 'string' : testoOpz(x.giocatore))));
 }
 
 /* Dal backup si prendono solo le impostazioni del tipo giusto; le altre restano quelle predefinite */

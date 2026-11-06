@@ -791,6 +791,13 @@ textarea.campo-riga { resize: none; min-height: 72px; padding: 10px 0; line-heig
 
 .riga-esito-sel .seg { flex: 0 0 168px; }
 
+/* Riga-pulsante dentro una lista della scheda ("Aggiungi condizione", "Incolla schedina") */
+.f-azione { width: 100%; gap: 10px; color: var(--accento); font-size: 17px; text-align: left; }
+.f-azione .ic { width: 22px; height: 22px; flex: none; }
+/* Combo: più liste nella stessa sezione (partita, condizioni, quota) */
+.f-gruppo .f-lista + .intestazione { margin-top: 20px; }
+.f-gruppo .f-lista + .f-lista { margin-top: 20px; }
+
 /* ---------- Scelte (conferme dal basso) ---------- */
 
 .scelte {

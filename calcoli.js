@@ -17,7 +17,9 @@ const PREDEFINITE = {
   ultimi: { area: 'nba', stake: '15', importo: '10', tipoNba: 'Punti', tipoCalcio: '1', competizione: 'campionati' },
 };
 
-const TIPI_NBA = ['Punti', 'Rimbalzi', 'Assist', 'Triple', 'P+R+A', 'P+R', 'P+A', 'R+A', 'Stoppate', 'Recuperi'];
+const TIPI_NBA = ['Punti', 'Rimbalzi', 'Assist', 'Triple', 'P+R+A', 'P+R', 'P+A', 'R+A', 'Stoppate', 'Recuperi', 'Doppia doppia'];
+// Prestazioni senza linea: "sì" (salvato come over) oppure "no" (under)
+const TIPI_SI_NO = ['Doppia doppia', 'Tripla doppia'];
 const TIPI_CALCIO = ['1', 'X', '2', '1X', 'X2', '12', 'Over', 'Under', 'Goal', 'NoGoal', 'Handicap', 'Altro'];
 const COMPETIZIONI = { campionati: 'Campionati', uefa: 'UEFA', nazionali: 'Nazionali' };
 const COMPETIZIONI_LUNGHE = { campionati: 'Campionati', uefa: 'Competizioni UEFA', nazionali: 'Nazionali', misto: 'Multiple miste' };
@@ -139,9 +141,29 @@ function esitoDaSelezioni(g) {
 
 const ESITO_SEL_DA_GIOCATA = { attesa: 'attesa', vinta: 'vinta', persa: 'persa', rimborsata: 'annullata', cashout: 'attesa' };
 
+/* Combo (Bet Builder su bet365, My Combo su Sisal): più condizioni nella stessa partita
+   con una quota sola. Nei dati è una selezione con l'elenco "condizioni"; ogni condizione
+   ha il suo esito (così si sa quale ha fatto saltare il combo) e l'esito del combo si calcola da lì. */
+const haCondizioni = s => Array.isArray(s?.condizioni) && s.condizioni.length > 0;
+
+function esitoCombo(s) {
+  const e = s.condizioni.map(c => c.esito);
+  if (e.includes('persa')) return 'persa';
+  if (e.includes('attesa')) return 'attesa';
+  if (e.every(x => x === 'annullata')) return 'annullata';
+  return 'vinta';
+}
+
+/* Multiple e combo si segnano selezione per selezione (o condizione per condizione) */
+const segnaAPezzi = g => g.selezioni.length > 1 || haCondizioni(g.selezioni[0]);
+
 function impostaEsitoGiocata(g, esito) {
   g.esito = esito;
-  if (g.selezioni.length === 1) g.selezioni[0].esito = ESITO_SEL_DA_GIOCATA[esito];
+  if (g.selezioni.length !== 1) return;
+  const s = g.selezioni[0];
+  s.esito = ESITO_SEL_DA_GIOCATA[esito];
+  // Combo perso: quale condizione è saltata lo sa solo chi la segna, le altre restano com'erano
+  if (haCondizioni(s) && esito !== 'persa') s.condizioni.forEach(c => { c.esito = s.esito; });
 }
 
 /* Quando la partita è sicuramente finita */
@@ -161,12 +183,22 @@ const areaDi = g => (g.divertimento ? 'divertimento' : g.area);
 /* ---------- Testi ---------- */
 
 function prestazione(s) {
+  if (TIPI_SI_NO.includes(s.tipo)) return s.verso === 'under' ? `${s.tipo}: no` : s.tipo;
   return [s.tipo, s.verso === 'under' ? 'Under' : 'Over', s.linea != null && s.linea !== '' ? decimale(s.linea) : '']
     .filter(Boolean).join(' ');
 }
-const mercatoCalcio = s => [s.tipo, s.dettaglio].filter(Boolean).join(' ');
-const descrizioneSelezione = s => (s.sport === 'nba' ? prestazione(s) : mercatoCalcio(s));
-const nomeSelezione = s => (s.sport === 'nba' ? s.giocatore : s.partita);
+/* Per le statistiche "Tipo di prestazione": Punti Over, Assist Under, Doppia doppia... */
+const chiavePrestazione = s => (TIPI_SI_NO.includes(s.tipo) ? prestazione(s) : `${s.tipo} ${s.verso === 'under' ? 'Under' : 'Over'}`);
+// "Altro" da solo non dice niente: se c'è il dettaglio basta quello
+const mercatoCalcio = s => (s.tipo === 'Altro' && s.dettaglio ? s.dettaglio : [s.tipo, s.dettaglio].filter(Boolean).join(' '));
+const descrizioneCondizione = (s, c) => (s.sport === 'nba' ? prestazione(c) : mercatoCalcio(c));
+const descrizioneSelezione = s => (haCondizioni(s)
+  ? s.condizioni.map(c => descrizioneCondizione(s, c)).join(' + ')
+  : descrizioneCondizione(s, s));
+function nomeSelezione(s) {
+  if (s.sport !== 'nba') return s.partita;
+  return haCondizioni(s) ? [...new Set(s.condizioni.map(c => c.giocatore).filter(Boolean))].join(' + ') : s.giocatore;
+}
 
 function titoloGiocata(g) {
   return g.selezioni.length > 1 ? `Multipla · ${g.selezioni.length} selezioni` : nomeSelezione(g.selezioni[0]);
@@ -267,16 +299,29 @@ function nettoPerSelezione(g) {
   return sel.map(s => (coinvolte.includes(s) ? n / coinvolte.length : 0));
 }
 
+/* Le condizioni di un combo contano una per una (es. nella classifica dei giocatori),
+   con la stessa regola delle multiple: vincita divisa tra tutte, perdita solo a quelle sbagliate */
+function partiSelezione(s, valore) {
+  if (!haCondizioni(s)) return [[s, valore]];
+  const c = s.condizioni;
+  let coinvolte = s.esito === 'persa' ? c.filter(x => x.esito === 'persa')
+    : s.esito === 'vinta' ? c.filter(x => x.esito !== 'annullata') : c;
+  if (!coinvolte.length) coinvolte = c;
+  return c.map(x => [{ ...s, ...x }, coinvolte.includes(x) ? valore / coinvolte.length : 0]);
+}
+
 function perSelezione(chiuse, chiave, filtro) {
   const gruppi = new Map();
   chiuse.forEach(g => {
     const quote = nettoPerSelezione(g);
-    g.selezioni.forEach((s, i) => {
-      if (!filtro(s)) return;
-      const k = chiave(s);
-      if (!k) return;
-      if (!gruppi.has(k)) gruppi.set(k, nuovaRiga(k));
-      conta(gruppi.get(k), s.esito, quote[i]);
+    g.selezioni.forEach((sel, i) => {
+      partiSelezione(sel, quote[i]).forEach(([s, valore]) => {
+        if (!filtro(s)) return;
+        const k = chiave(s);
+        if (!k) return;
+        if (!gruppi.has(k)) gruppi.set(k, nuovaRiga(k));
+        conta(gruppi.get(k), s.esito, valore);
+      });
     });
   });
   return [...gruppi.values()];
